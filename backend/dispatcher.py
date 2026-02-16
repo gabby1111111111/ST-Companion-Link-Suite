@@ -1,0 +1,181 @@
+"""
+Companion-Link Webhook 分发器
+
+将处理后的数据推送到多个目标端：
+1. SillyTavern Plugin (主目标)
+2. 用户注册的外部 Webhook (如 Aegis-Isle)
+"""
+
+import logging
+from typing import Optional
+
+import httpx
+
+from config import settings
+from models import CompanionContext, ActionType, WebhookTarget, APIResponse
+
+logger = logging.getLogger("companion-link.dispatcher")
+
+
+class Dispatcher:
+    """多目标 Webhook 分发器"""
+
+    def __init__(self):
+        self.client = httpx.AsyncClient(timeout=10)
+        # 内存中的动态 Webhook 列表
+        self._webhook_targets: list[WebhookTarget] = []
+
+        # 从配置文件预注册的 Webhook
+        for url in settings.webhooks:
+            self._webhook_targets.append(
+                WebhookTarget(url=url, name="预注册")
+            )
+
+    async def close(self):
+        """关闭 HTTP 客户端"""
+        await self.client.aclose()
+
+    # ============================================================
+    # Webhook 注册管理
+    # ============================================================
+
+    def register_webhook(self, target: WebhookTarget) -> None:
+        """注册一个新的 Webhook 目标"""
+        # 去重
+        existing_urls = {t.url for t in self._webhook_targets}
+        if target.url not in existing_urls:
+            self._webhook_targets.append(target)
+            logger.info(f"🔗 Webhook 已注册: {target.name or target.url}")
+        else:
+            logger.warning(f"⚠️ Webhook 已存在，跳过: {target.url}")
+
+    def unregister_webhook(self, url: str) -> bool:
+        """注销一个 Webhook 目标"""
+        before = len(self._webhook_targets)
+        self._webhook_targets = [
+            t for t in self._webhook_targets if t.url != url
+        ]
+        removed = len(self._webhook_targets) < before
+        if removed:
+            logger.info(f"🔌 Webhook 已注销: {url}")
+        return removed
+
+    def list_webhooks(self) -> list[WebhookTarget]:
+        """列出所有已注册的 Webhook"""
+        return self._webhook_targets.copy()
+
+    # ============================================================
+    # 数据分发
+    # ============================================================
+
+    async def dispatch(self, context: CompanionContext) -> dict:
+        """
+        将联动上下文分发到所有目标
+
+        Returns:
+            dict: 各目标的响应结果
+        """
+        results = {}
+
+        # 1. 推送到 SillyTavern
+        st_result = await self._push_to_sillytavern(context)
+        results["sillytavern"] = st_result
+
+        # 2. 推送到所有 Webhook
+        for target in self._webhook_targets:
+            # 检查事件过滤
+            if context.action not in target.events:
+                continue
+            wh_result = await self._push_to_webhook(target, context)
+            results[target.name or target.url] = wh_result
+
+        return results
+
+    async def _push_to_sillytavern(
+        self, context: CompanionContext
+    ) -> dict:
+        """推送数据到 SillyTavern Plugin"""
+        url = (
+            settings.sillytavern_url.rstrip("/")
+            + settings.sillytavern_plugin_route
+        )
+
+        headers = {"Content-Type": "application/json"}
+        if settings.sillytavern_api_key:
+            headers["Authorization"] = f"Bearer {settings.sillytavern_api_key}"
+
+        payload = {
+            "action": context.action.value,
+            "formatted_text": context.formatted_text,
+            "note": context.note.model_dump(mode="json"),
+            "user_comment": context.user_comment,
+            "timestamp": context.timestamp.isoformat(),
+        }
+
+        try:
+            response = await self.client.post(
+                url, json=payload, headers=headers
+            )
+            response.raise_for_status()
+            logger.info(f"🎭 SillyTavern 推送成功: {response.status_code}")
+            return {"success": True, "status": response.status_code}
+        except httpx.ConnectError:
+            logger.warning(
+                f"⚠️ SillyTavern 未连接 ({url})"
+                " — 如果 ST 插件尚未安装，此提示可忽略"
+            )
+            return {"success": False, "error": "SillyTavern 未启动或未安装插件"}
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status == 401:
+                logger.warning(
+                    "⚠️ SillyTavern 返回 401 Unauthorized"
+                    " — 请检查 .env 中 CL_SILLYTAVERN_API_KEY 是否配置正确"
+                    "，或 SillyTavern 插件是否已安装"
+                )
+            elif status == 404:
+                logger.warning(
+                    "⚠️ SillyTavern 返回 404"
+                    " — Companion-Link 插件可能尚未安装到 SillyTavern"
+                )
+            else:
+                logger.error(f"❌ SillyTavern 推送失败 [{status}]: {e}")
+            return {"success": False, "error": f"HTTP {status}"}
+        except httpx.HTTPError as e:
+            logger.error(f"❌ SillyTavern 推送失败: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _push_to_webhook(
+        self, target: WebhookTarget, context: CompanionContext
+    ) -> dict:
+        """推送数据到外部 Webhook"""
+        payload = {
+            "source": "companion-link",
+            "action": context.action.value,
+            "note": context.note.model_dump(mode="json"),
+            "formatted_text": context.formatted_text,
+            "user_comment": context.user_comment,
+            "timestamp": context.timestamp.isoformat(),
+        }
+
+        try:
+            response = await self.client.post(
+                target.url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            logger.info(
+                f"🔗 Webhook 推送成功: {target.name or target.url} "
+                f"[{response.status_code}]"
+            )
+            return {"success": True, "status": response.status_code}
+        except httpx.HTTPError as e:
+            logger.error(
+                f"❌ Webhook 推送失败: {target.name or target.url} - {e}"
+            )
+            return {"success": False, "error": str(e)}
+
+
+# 全局分发器实例
+dispatcher = Dispatcher()

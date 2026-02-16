@@ -1,0 +1,375 @@
+/**
+ * Companion-Link Popup 样式
+ * 暗色系 + 玻璃拟态风格
+ */
+
+/* ============================================================
+   基础重置
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 320px;
+  min-height: 200px;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 13px;
+  color: #e0e0e0;
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  padding: 16px;
+  overflow: hidden;
+}
+
+/* ============================================================
+   头部
+   ============================================================ */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-title .logo {
+  font-size: 20px;
+}
+
+.header-title h1 {
+  font-size: 15px;
+  font-weight: 600;
+  background: linear-gradient(90deg, #00d2ff, #7b61ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.version {
+  font-size: 11px;
+  color: #666;
+  font-family: monospace;
+}
+
+/* ============================================================
+   连接状态卡
+   ============================================================ */
+
+.status-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  transition: all 0.3s ease;
+}
+
+.status-card.connected {
+  border-color: rgba(0, 210, 100, 0.3);
+  background: rgba(0, 210, 100, 0.06);
+}
+
+.status-card.disconnected {
+  border-color: rgba(255, 80, 80, 0.3);
+  background: rgba(255, 80, 80, 0.06);
+}
+
+.status-card.checking {
+  border-color: rgba(255, 170, 0, 0.3);
+  background: rgba(255, 170, 0, 0.06);
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+  transition: background 0.3s ease;
+}
+
+.status-dot.connected {
+  background: #00d264;
+  box-shadow: 0 0 6px rgba(0, 210, 100, 0.5);
+}
+
+.status-dot.disconnected {
+  background: #ff5050;
+  box-shadow: 0 0 6px rgba(255, 80, 80, 0.5);
+}
+
+.status-dot.checking {
+  background: #ffaa00;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-detail {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #888;
+  padding-left: 16px;
+}
+
+/* ============================================================
+   设置行
+   ============================================================ */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 12px;
+}
+
+.setting-row label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Toggle 开关 */
+.switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #333;
+  border-radius: 22px;
+  transition: 0.3s;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: #888;
+  border-radius: 50%;
+  transition: 0.3s;
+}
+
+input:checked + .slider {
+  background: linear-gradient(90deg, #00d2ff, #7b61ff);
+}
+
+input:checked + .slider::before {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+/* ============================================================
+   配置输入
+   ============================================================ */
+
+.setting-group {
+  margin-bottom: 12px;
+}
+
+.setting-label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.input-row {
+  display: flex;
+  gap: 6px;
+}
+
+input[type="text"],
+input[type="number"] {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #e0e0e0;
+  font-size: 12px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus {
+  border-color: rgba(0, 210, 255, 0.5);
+}
+
+input[type="number"] {
+  width: 70px;
+  text-align: center;
+}
+
+/* ============================================================
+   按钮
+   ============================================================ */
+
+.btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #00d2ff, #7b61ff);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ccc;
+}
+
+.btn-outline:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(0, 210, 255, 0.3);
+  color: #00d2ff;
+}
+
+/* ============================================================
+   高级设置
+   ============================================================ */
+
+.advanced {
+  margin-bottom: 12px;
+}
+
+.advanced summary {
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  padding: 6px 0;
+  outline: none;
+  user-select: none;
+  transition: color 0.2s;
+}
+
+.advanced summary:hover {
+  color: #999;
+}
+
+.advanced-content {
+  padding: 10px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.setting-inline label {
+  font-size: 12px;
+  color: #aaa;
+}
+
+/* ============================================================
+   操作按钮区
+   ============================================================ */
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actions .btn {
+  flex: 1;
+}
+
+/* ============================================================
+   Toast 提示
+   ============================================================ */
+
+.toast {
+  position: fixed;
+  bottom: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0;
+  transition: all 0.3s ease;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.toast.show {
+  bottom: 12px;
+  opacity: 1;
+}
+
+.toast.success {
+  background: rgba(0, 210, 100, 0.9);
+  color: #fff;
+}
+
+.toast.error {
+  background: rgba(255, 80, 80, 0.9);
+  color: #fff;
+}
+
+.toast.warn {
+  background: rgba(255, 170, 0, 0.9);
+  color: #1a1a2e;
+}

@@ -1,0 +1,69 @@
+/* ========================================================
+   Companion-Link — SillyTavern UI Extension Styles
+   ======================================================== */
+
+/* 行级容器 */
+.cl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  gap: 8px;
+}
+
+.cl-row label {
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+
+.cl-row select,
+.cl-row input[type="number"] {
+  font-size: 12px;
+}
+
+/* 状态徽标 */
+.cl-status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cl-status-ok {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+
+.cl-status-idle {
+  background: rgba(158, 158, 158, 0.15);
+  color: #9e9e9e;
+}
+
+.cl-status-warn {
+  background: rgba(255, 152, 0, 0.15);
+  color: #ff9800;
+}
+
+.cl-status-checking {
+  background: rgba(33, 150, 243, 0.15);
+  color: #2196f3;
+}
+
+/* 上下文预览卡 */
+.cl-preview {
+  font-size: 12px;
+  padding: 8px 10px;
+  background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.15));
+  border-radius: 6px;
+  min-height: 36px;
+  line-height: 1.5;
+  word-break: break-word;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* 按钮栏 */
+.cl-row .menu_button_icon {
+  font-size: 12px;
+  padding: 4px 10px;
+}

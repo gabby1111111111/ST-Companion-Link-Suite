@@ -1,0 +1,155 @@
+/**
+ * Companion-Link — SillyTavern Server Plugin
+ *
+ * 职责：接收 Python 后端的 POST 推送，存储上下文，供 UI Extension 拉取。
+ *
+ * 安装：复制此文件夹到 SillyTavern/plugins/companion-link/
+ *       并在 config.yaml 中设置 enableServerPlugins: true
+ *
+ * 路由（自动挂载在 /api/plugins/companion-link/ 下）：
+ *   POST /inject    ← Python 后端推送联动数据
+ *   GET  /context   ← UI Extension 拉取最新上下文
+ *   GET  /history   ← 获取最近记录
+ *   POST /clear     ← 清除上下文
+ *   GET  /status    ← 健康检查
+ */
+
+const MODULE_NAME = 'companion-link';
+const MAX_HISTORY = 50;
+
+let contextHistory = [];
+let latestContext = null;
+
+/**
+ * @param {import('express').Router} router
+ * @returns {Promise<void>}
+ */
+async function init(router) {
+  console.log(`[${MODULE_NAME}] 🚀 Server Plugin 初始化...`);
+
+  // ----------------------------------------------------------
+  // POST /inject — 接收推送
+  // ----------------------------------------------------------
+  router.post('/inject', (req, res) => {
+    try {
+      const { action, formatted_text, note, user_comment, timestamp } = req.body;
+
+      if (!action) {
+        return res.status(400).json({ success: false, error: 'Missing: action' });
+      }
+
+      const entry = {
+        id: `cl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        action,
+        formatted_text: formatted_text || '',
+        note: note || {},
+        user_comment: user_comment || null,
+        timestamp: timestamp || new Date().toISOString(),
+        received_at: new Date().toISOString(),
+      };
+
+      latestContext = entry;
+      contextHistory.unshift(entry);
+      if (contextHistory.length > MAX_HISTORY) {
+        contextHistory.length = MAX_HISTORY;
+      }
+
+      console.log(
+        `[${MODULE_NAME}] 📥 action=${action}`,
+        `title="${note?.title || '?'}"`,
+        `text=${(formatted_text || '').length}chars`
+      );
+
+      return res.json({
+        success: true,
+        message: `OK: ${action} → 《${note?.title || '?'}》`,
+        id: entry.id,
+      });
+    } catch (err) {
+      console.error(`[${MODULE_NAME}] ❌ inject error:`, err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // GET /context — 拉取最新上下文
+  // ----------------------------------------------------------
+  router.get('/context', (req, res) => {
+    const maxAge = parseInt(req.query.max_age) || 300;
+
+    if (!latestContext) {
+      return res.json({ available: false, context: null });
+    }
+
+    const ageSec = (Date.now() - new Date(latestContext.received_at).getTime()) / 1000;
+    if (ageSec > maxAge) {
+      return res.json({
+        available: false,
+        context: null,
+        reason: `expired (${Math.round(ageSec)}s > ${maxAge}s)`,
+      });
+    }
+
+    return res.json({
+      available: true,
+      context: latestContext,
+      age_seconds: Math.round(ageSec),
+    });
+  });
+
+  // ----------------------------------------------------------
+  // GET /history
+  // ----------------------------------------------------------
+  router.get('/history', (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit) || 10, MAX_HISTORY);
+    return res.json({
+      count: contextHistory.length,
+      items: contextHistory.slice(0, limit),
+    });
+  });
+
+  // ----------------------------------------------------------
+  // POST /clear
+  // ----------------------------------------------------------
+  router.post('/clear', (req, res) => {
+    const hadData = latestContext !== null;
+    latestContext = null;
+    if (req.body?.clear_history) contextHistory = [];
+    return res.json({ success: true, cleared: hadData });
+  });
+
+  // ----------------------------------------------------------
+  // GET /status
+  // ----------------------------------------------------------
+  router.get('/status', (req, res) => {
+    return res.json({
+      status: 'active',
+      plugin: MODULE_NAME,
+      version: info.version,
+      has_context: latestContext !== null,
+      history_count: contextHistory.length,
+      latest_action: latestContext?.action || null,
+      latest_title: latestContext?.note?.title || null,
+      latest_age_sec: latestContext
+        ? Math.round((Date.now() - new Date(latestContext.received_at).getTime()) / 1000)
+        : null,
+    });
+  });
+
+  console.log(`[${MODULE_NAME}] ✅ 路由已注册: inject, context, history, clear, status`);
+}
+
+async function exit() {
+  latestContext = null;
+  contextHistory = [];
+  console.log(`[${MODULE_NAME}] 👋 已卸载`);
+}
+
+const info = {
+  id: MODULE_NAME,
+  name: 'Companion-Link',
+  description: '小红书 ⟷ SillyTavern 实时联动 — 接收外部浏览行为信号并注入 AI 对话',
+  version: '0.1.0',
+};
+
+module.exports = { init, exit, info };

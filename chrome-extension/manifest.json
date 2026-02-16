@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Companion-Link",
+  "version": "0.1.0",
+  "description": "小红书 ⟷ SillyTavern 实时联动 — 非侵入式捕获浏览行为并注入 AI 对话上下文",
+
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://www.xiaohongshu.com/*",
+    "https://xiaohongshu.com/*",
+    "http://localhost:8765/*",
+    "http://127.0.0.1:8765/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.xiaohongshu.com/*",
+        "https://xiaohongshu.com/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Companion-Link 配置",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

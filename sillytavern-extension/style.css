@@ -1,0 +1,51 @@
+/* Companion-Link UI Extension Styles */
+
+.cl-settings {
+  margin-top: 10px;
+}
+
+.cl-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 0;
+  gap: 8px;
+}
+
+.cl-setting-row label {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.cl-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.cl-badge-active {
+  background: rgba(0, 210, 100, 0.15);
+  color: #4caf50;
+}
+
+.cl-badge-inactive {
+  background: rgba(150, 150, 150, 0.15);
+  color: #999;
+}
+
+.cl-badge-unknown {
+  background: rgba(255, 170, 0, 0.15);
+  color: #ffaa00;
+}
+
+.cl-context-preview {
+  font-size: 12px;
+  padding: 8px;
+  background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.2));
+  border-radius: 6px;
+  margin-top: 4px;
+  min-height: 30px;
+  line-height: 1.4;
+  word-break: break-all;
+}
