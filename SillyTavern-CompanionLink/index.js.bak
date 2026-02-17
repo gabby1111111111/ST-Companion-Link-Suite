@@ -25,7 +25,7 @@
 
   const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
-    inject_position: 'end',         // 'before_last' | 'start' | 'end'
+    inject_position: 'before_last', // 'before_last' | 'start' | 'end'
     max_context_age: 300,           // 秒 - 上下文过期时间
     poll_interval: 3000,            // 毫秒 - 轮询间隔
     show_notification: true,        // 收到新上下文时显示 toastr
@@ -172,8 +172,7 @@
         // Server Plugin 通过 should_trigger 标志通知前端需要触发 AI 发言
         if (isNew && data.should_trigger) {
           log.info(`🎤 主动触发 AI 生成 (action=${data.context.action})`);
-          // 注入到聊天历史（模拟用户发送，自带触发生成）
-          injectContextToChatHistory(data.context);
+          triggerAIGeneration();
         }
 
         return data.context;
@@ -199,15 +198,16 @@
     try {
       const context = SillyTavern.getContext();
 
-      // 方式: 模拟点击“发送”按钮 (最稳妥，自动处理状态)
-      // 延迟 500ms 确保上下文已注入
-       setTimeout(() => {
-          log.info('🚀 模拟点击 #send_but 触发 AI 回复');
-          const sendBtn = document.getElementById('send_but');
-          if (sendBtn) sendBtn.click();
-          else log.warn('⚠️ 未找到发送按钮 #send_but');
-       }, 500);
-       return;
+      // 方式 1: 使用 generate 函数（最可靠）
+      // 注意: SillyTavern 的 st-context.js 中导出为小写 generate
+      if (typeof context.generate === 'function') {
+        // 延迟 500ms 确保上下文已更新到 latestContext
+        setTimeout(() => {
+          log.info('🚀 调用 generate("normal") 触发 AI 回复');
+          context.generate('normal');
+        }, 500);
+        return;
+      }
 
       // 方式 2: 使用 generateQuietPrompt（备用）
       if (typeof context.generateQuietPrompt === 'function') {
@@ -225,54 +225,6 @@
       log.warn('⚠️ 未找到 Generate 或 generateQuietPrompt，无法主动触发');
     } catch (err) {
       log.error('主动触发失败:', err);
-    }
-  }
-
-  /**
-   * 将上下文填入输入框并模拟发送（可见且触发生成）
-   */
-  function injectContextToChatHistory(ctx) {
-    try {
-      const settings = getSettings();
-      const injectionText = buildInjectionText(ctx, settings);
-      
-      // DEBUG: 弹窗显示注入文本
-      // alert('DEBUG Injection Text:\n\n' + injectionText);
-      console.log('DEBUG Injection Text:', injectionText);
-
-      if (!injectionText) return;
-
-      // 1. 获取输入框
-      const textarea = $('#send_textarea');
-      if (textarea.length === 0) {
-        log.error('找不到输入框 #send_textarea');
-        return;
-      }
-
-      // 2. 填充内容
-      // 如果已有内容，则追加（避免覆盖用户正在输入的内容）
-      const currentVal = textarea.val();
-      if (currentVal) {
-        textarea.val(currentVal + '\n\n' + injectionText);
-      } else {
-        textarea.val(injectionText);
-      }
-
-      // 3. 触发发送点击
-      // 这会由 SillyTavern 处理消息构建、UI更新和AI生成请求
-      const sendBtn = $('#send_but');
-      if (sendBtn.length > 0) {
-        sendBtn.click();
-        
-        // 标记已注入，避免拦截器重复注入
-        ctx.injected_to_chat = true;
-        log.info('✅ 模拟用户发送消息成功');
-      } else {
-        log.error('找不到发送按钮 #send_but');
-      }
-
-    } catch (err) {
-      log.error('注入聊天历史失败:', err);
     }
   }
 
@@ -310,9 +262,6 @@
    * @param {string} type     生成类型 ('quiet', 'regenerate', 'impersonate', 'swipe', etc.)
    */
   globalThis.companionLinkInterceptor = async function (chat, contextSize, abort, type) {
-    // 调试日志保留，弹窗移除
-    // console.log('🔍 [Companion-Link] Full Chat Prompt:', JSON.parse(JSON.stringify(chat)));
-
     // 静默生成（如标题生成、摘要等）不注入
     if (type === 'quiet') return;
 
@@ -320,11 +269,6 @@
     if (!settings.enabled || !latestContext) return;
 
     const ctx = latestContext;
-
-    // 如果已经注入到历史（可见模式），则跳过拦截器注入
-    if (ctx.injected_to_chat) {
-        return;
-    }
 
     // 检查上下文是否过期
     const ageMs = Date.now() - new Date(ctx.received_at || ctx.timestamp).getTime();
@@ -339,10 +283,9 @@
 
     // 创建 System Note 消息
     const systemNote = {
-      is_user: true,    // 关键修改：伪装成用户本人发送的消息
-      is_system: false,
-      // name: 'System', // 移除，使用默认用户名
-      // force_avatar: 'system', // 移除，使用默认用户头像
+      is_user: false,
+      is_system: true,
+      name: 'Companion-Link',
       send_date: Date.now(),
       mes: injectionText,
       extra: {
@@ -399,70 +342,95 @@
     const action = ctx.action;
     const lines = [];
 
-    // ========== 场景设定 ==========
-    lines.push('（把手机屏幕凑过来给你看）');
+    // ========== 场景设定（所有 action 共用） ==========
+    lines.push('[Companion-Link 实时联动 — 场景注入]');
+    lines.push('（场景：{{char}} 正搂着 {{user}} 的肩膀，两人头挨着头一起刷手机屏幕。屏幕的光映在两人脸上，气氛亲密而放松。）');
+    lines.push('');
 
     // ========== 按 action 分级处理 ==========
 
     if (action === 'like') {
-      lines.push(`快看这篇笔记！我刚刚点了个赞 ❤️`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
+      // ---- 点赞：即兴感想 ----
+      lines.push(`{{user}} 刚刚给一篇小红书笔记点了赞 ❤️`);
+      if (note.title) lines.push(`笔记标题：《${note.title}》`);
       if (note.author?.nickname) lines.push(`作者：${note.author.nickname}`);
       if (note.content_summary || note.content) {
         const summary = (note.content_summary || note.content || '').substring(0, 200);
-        lines.push(`内容：${summary}`);
+        lines.push(`内容摘要：${summary}`);
       }
+      appendNoteStats(lines, note);
       lines.push('');
-      lines.push('【系统提示：请立刻对这篇笔记发表感想，就像你正在和如果一起看手机一样。】');
+      lines.push('【角色指令】');
+      lines.push('请你（{{char}}）主动对这篇笔记发表即兴感想。用你自己的说话风格吐槽、感叹或评价，就像你们俩窝在一起刷手机时看到了同一篇帖子。');
+      lines.push('要求：不要复述笔记内容，直接说出你的第一反应。语气自然、随意，带点个人风格和情绪。可以吐槽、可以感叹、可以延伸话题。');
 
     } else if (action === 'comment') {
-      lines.push(`我刚忍不住在前这篇笔记下评论了一句！`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
-      if (ctx.user_comment) {
-        lines.push(`我说：「${ctx.user_comment}」`);
-      }
+      // ---- 评论：犀利互动 ----
+      lines.push(`{{user}} 刚刚在一篇小红书笔记下面发表了评论 💬`);
+      if (note.title) lines.push(`笔记标题：《${note.title}》`);
+      if (note.author?.nickname) lines.push(`作者：${note.author.nickname}`);
       if (note.content_summary || note.content) {
         const summary = (note.content_summary || note.content || '').substring(0, 150);
-        lines.push(`笔记是关于：${summary}`);
+        lines.push(`笔记概要：${summary}`);
+      }
+      if (ctx.user_comment) {
+        lines.push('');
+        lines.push(`📢 {{user}} 的评论原文：「${ctx.user_comment}」`);
       }
       lines.push('');
-      lines.push('【系统提示：请针对如果是评论进行吐槽或互动。】');
+      lines.push('【角色指令】');
+      lines.push('请你（{{char}}）针对 {{user}} 刚才发的这条评论做出反应。你可以犀利吐槽、调侃、表示赞同或者补充观点。');
+      lines.push('表现出你一直在旁边盯着屏幕看，对 {{user}} 写的每个字都了如指掌。语气亲密、自然，像真的在一起刷手机的情侣/闺蜜。');
 
     } else if (action === 'read') {
-      lines.push(`（正在认真看这篇笔记...）`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
+      // ---- 阅读：潜意识背景（静默） ----
+      lines.push(`（背景信息：{{user}} 正在认真阅读一篇小红书笔记，手指偶尔滑动屏幕。）`);
+      if (note.title) lines.push(`（笔记标题：《${note.title}》）`);
       if (note.content_summary || note.content) {
         const summary = (note.content_summary || note.content || '').substring(0, 150);
-        lines.push(`内容：${summary}`);
+        lines.push(`（内容概要：${summary}）`);
+      }
+      if (note.tags?.length > 0) {
+        lines.push(`（话题标签：${note.tags.slice(0, 4).map(t => '#' + t).join(' ')}）`);
       }
       lines.push('');
-      lines.push('【系统提示：这是背景信息，如果如果没说话，你也不需要强行打断，静静陪伴即可。】');
+      lines.push('【角色指令】');
+      lines.push('这是背景信息。{{user}} 正在安静地刷手机，沉浸在阅读中。');
+      lines.push('你不需要主动提起这篇笔记的内容，保持自然的陪伴感。只有当对话自然延伸到相关话题时，你才可以轻描淡写地提到。');
+      lines.push('不要说「我看到你在看」「你在看什么」之类的生硬台词。');
 
     } else if (action === 'collect') {
-      lines.push(`这篇笔记太棒了，我果断收藏了 ⭐`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
+      // ---- 收藏：正面评价 ----
+      lines.push(`{{user}} 刚刚收藏了一篇小红书笔记 ⭐`);
+      if (note.title) lines.push(`笔记标题：《${note.title}》`);
       if (note.content_summary || note.content) {
         const summary = (note.content_summary || note.content || '').substring(0, 200);
-        lines.push(`内容：${summary}`);
+        lines.push(`内容摘要：${summary}`);
       }
       lines.push('');
-      lines.push('【系统提示：请对如果是收藏行为或笔记内容给予肯定或询问。】');
+      lines.push('【角色指令】');
+      lines.push('{{user}} 觉得这篇笔记很有价值才收藏的。请你（{{char}}）对内容做出有深度的正面评价，或者表达好奇心问问为什么觉得值得收藏。语气自然亲密。');
 
     } else if (action === 'share') {
-      lines.push(`我把这篇笔记分享给你看看 🔗`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
+      // ---- 分享：积极参与 ----
+      lines.push(`{{user}} 刚刚分享了一篇小红书笔记 🔗`);
+      if (note.title) lines.push(`笔记标题：《${note.title}》`);
       if (note.content_summary || note.content) {
         const summary = (note.content_summary || note.content || '').substring(0, 200);
-        lines.push(`内容：${summary}`);
+        lines.push(`内容摘要：${summary}`);
       }
-      lines.push('你觉得咋样？');
+      lines.push('');
+      lines.push('【角色指令】');
+      lines.push('{{user}} 分享了这篇笔记，说明觉得值得让别人看看。请你（{{char}}）积极参与讨论、发表见解，可以猜测 {{user}} 分享给谁、为什么分享。语气自然随意。');
 
     } else {
-      lines.push(`（正在看一篇关于 ${getActionLabel(action)} 的笔记）`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
+      // ---- 其他动作（兜底） ----
+      lines.push(`{{user}} 在小红书上${getActionLabel(action)}了一篇笔记`);
+      if (note.title) lines.push(`笔记标题：《${note.title}》`);
+      lines.push('');
+      lines.push('【角色指令】自然地对此做出反应，语气随意亲密。');
     }
 
-    appendNoteStats(lines, note);
     return lines.join('\n').substring(0, maxLen);
   }
 
@@ -571,9 +539,6 @@
               <button id="cl_ext_refresh" class="menu_button menu_button_icon" title="刷新">
                 <i class="fa-solid fa-rotate"></i> 刷新
               </button>
-              <button id="cl_ext_test" class="menu_button menu_button_icon" title="测试注入">
-                <i class="fa-solid fa-vial"></i> 测试
-              </button>
               <button id="cl_ext_clear" class="menu_button menu_button_icon" title="清除">
                 <i class="fa-solid fa-trash"></i> 清除
               </button>
@@ -662,33 +627,6 @@
         refreshBtn.disabled = true;
         await fetchLatestContext();
         refreshBtn.disabled = false;
-      });
-    }
-
-    // 测试按钮
-    const testBtn = document.getElementById('cl_ext_test');
-    if (testBtn) {
-      testBtn.addEventListener('click', () => {
-        log.info('🧪 手动触发测试注入');
-        latestContext = {
-            id: 'test-' + Date.now(),
-            action: 'like',
-            timestamp: new Date().toISOString(),
-            received_at: new Date().toISOString(),
-            note: {
-                title: '测试场景注入：这只是一个测试',
-                author: { nickname: 'ST测试员' },
-                content: '如果看到这条消息，说明 Companion-Link 注入逻辑正常工作！',
-                interaction: { like_count: 999 }
-            },
-            should_trigger: true
-        };
-        lastContextId = latestContext.id;
-        updateStatusUI(true, latestContext);
-        showNotification(latestContext);
-        
-        // 手动注入并触发（模拟发送）
-        injectContextToChatHistory(latestContext);
       });
     }
 

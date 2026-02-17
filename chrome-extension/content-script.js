@@ -72,13 +72,23 @@
       ".comment-input",
       'textarea[placeholder*="评论"]',
       'textarea[placeholder*="说点什么"]',
+      'textarea[placeholder*="回复"]',
       '[contenteditable="true"]',
+      // 2025 小红书 UI 适配
+      '.reply-input textarea',
+      '.input-container textarea',
+      '.note-comment textarea',
+      '.comment-inner textarea',
     ],
     submitButtons: [
       ".comment-input .submit-btn",
       'button.submit',
       '.comment-btn',
-      // 文字匹配由代码实现（"发布", "发送"）
+      '.reply-btn',
+      '.send-btn',
+      'button[class*="submit"]',
+      'button[class*="send"]',
+      // 文字匹配由代码实现（"发布", "发送", "回复"）
     ],
   };
 
@@ -595,7 +605,7 @@
       const isTextSubmit =
         !submitEl &&
         (target.tagName === "BUTTON" || target.tagName === "SPAN" || target.tagName === "DIV") &&
-        /^(发布|发送|评论)$/.test(target.textContent?.trim());
+        /^(发布|发送|评论|回复)$/.test(target.textContent?.trim());
 
       if (submitEl || isTextSubmit) {
         handleCommentSubmit();
@@ -678,6 +688,125 @@
     }, true);
 
     log.info("⌨️ 评论键盘监听已设置");
+  }
+
+  // ============================================================
+  // 网络拦截层（层级 4）— 最稳定的评论捕获方式
+  // ============================================================
+
+  /**
+   * 拦截 Fetch / XHR 请求，捕获评论提交 API 调用
+   *
+   * 优势：不依赖 DOM 结构，小红书无论怎么改 UI，只要 API 地址不变就能捕获
+   */
+  function setupNetworkInterceptor() {
+    // ---- 小红书评论 API 匹配规则 ----
+    const COMMENT_API_PATTERNS = [
+      /\/api\/sns\/web\/v\d+\/comment\/post/i,
+      /\/api\/sns\/web\/v\d+\/comment\/reply/i,
+      /edith\.xiaohongshu\.com.*comment/i,
+    ];
+
+    function isCommentAPI(url) {
+      return COMMENT_API_PATTERNS.some(p => p.test(url));
+    }
+
+    /**
+     * 从请求体中提取评论文本
+     */
+    function extractCommentFromBody(body) {
+      if (!body) return null;
+
+      try {
+        let obj = null;
+
+        if (typeof body === 'string') {
+          obj = JSON.parse(body);
+        } else if (body instanceof FormData) {
+          // FormData 格式
+          return body.get('content') || body.get('comment') || null;
+        } else if (typeof body === 'object') {
+          obj = body;
+        }
+
+        if (obj) {
+          // 小红书常用字段名
+          return obj.content || obj.comment || obj.text || obj.message || null;
+        }
+      } catch (e) {
+        // JSON 解析失败，忽略
+      }
+      return null;
+    }
+
+    /**
+     * 处理捕获到的评论
+     */
+    function onCommentCaptured(commentText, source) {
+      if (!commentText || typeof commentText !== 'string') return;
+      const text = commentText.trim();
+      if (!text) return;
+
+      // 防重复：和 DOM 层的评论去重
+      if (text === _lastCommentText) {
+        log.debug(`[网络拦截] 评论内容与 DOM 层重复，跳过`);
+        return;
+      }
+
+      _lastCommentText = text;
+      log.info(`🌐 [网络拦截] 捕获评论 (${source}): "${text.substring(0, 60)}..."`);
+      sendSignal("comment", { comment_text: text });
+    }
+
+    // ---- Hook fetch ----
+    const originalFetch = window.fetch;
+    window.fetch = function (input, init) {
+      try {
+        const url = typeof input === 'string' ? input : (input?.url || '');
+
+        if (config.enabled && isCommentAPI(url)) {
+          const body = init?.body;
+          const commentText = extractCommentFromBody(body);
+          if (commentText) {
+            // 延迟执行，确保不阻塞原始请求
+            setTimeout(() => onCommentCaptured(commentText, 'fetch'), 0);
+          }
+        }
+      } catch (e) {
+        // 安全忽略
+      }
+      return originalFetch.apply(this, arguments);
+    };
+
+    // ---- Hook XMLHttpRequest ----
+    const originalXHROpen = XMLHttpRequest.prototype.open;
+    const originalXHRSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function (method, url, ...args) {
+      this._clUrl = url;
+      this._clMethod = method;
+      return originalXHROpen.apply(this, [method, url, ...args]);
+    };
+
+    XMLHttpRequest.prototype.send = function (body) {
+      try {
+        if (
+          config.enabled &&
+          this._clMethod?.toUpperCase() === 'POST' &&
+          isCommentAPI(this._clUrl || '')
+        ) {
+          const commentText = extractCommentFromBody(body);
+          if (commentText) {
+            setTimeout(() => onCommentCaptured(commentText, 'xhr'), 0);
+          }
+        }
+      } catch (e) {
+        // 安全忽略
+      }
+      return originalXHRSend.apply(this, arguments);
+    };
+
+    log.info("🌐 网络拦截已设置 (fetch + XHR)");
   }
 
   // ============================================================
@@ -918,6 +1047,9 @@
 
     // 6. 设置评论键盘监听
     setupCommentKeyListener();
+
+    // 6.5 设置网络拦截（评论 API 兑底）
+    setupNetworkInterceptor();
 
     // 7. 设置页面可见性监听
     setupVisibilityHandler();

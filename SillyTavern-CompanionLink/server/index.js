@@ -19,6 +19,7 @@ const MAX_HISTORY = 50;
 
 let contextHistory = [];
 let latestContext = null;
+let pendingTrigger = false;  // 主动触发标志
 
 /**
  * @param {import('express').Router} router
@@ -78,7 +79,7 @@ async function init(router) {
     const maxAge = parseInt(req.query.max_age) || 300;
 
     if (!latestContext) {
-      return res.json({ available: false, context: null });
+      return res.json({ available: false, context: null, should_trigger: false });
     }
 
     const ageSec = (Date.now() - new Date(latestContext.received_at).getTime()) / 1000;
@@ -86,14 +87,23 @@ async function init(router) {
       return res.json({
         available: false,
         context: null,
+        should_trigger: false,
         reason: `expired (${Math.round(ageSec)}s > ${maxAge}s)`,
       });
+    }
+
+    // 读取并重置主动触发标志
+    const shouldTrigger = pendingTrigger;
+    if (pendingTrigger) {
+      pendingTrigger = false;
+      console.log(`[${MODULE_NAME}] 🎤 should_trigger 已发送并重置`);
     }
 
     return res.json({
       available: true,
       context: latestContext,
       age_seconds: Math.round(ageSec),
+      should_trigger: shouldTrigger,
     });
   });
 
@@ -136,12 +146,38 @@ async function init(router) {
     });
   });
 
-  console.log(`[${MODULE_NAME}] ✅ 路由已注册: inject, context, history, clear, status`);
+  // ----------------------------------------------------------
+  // POST /trigger — 主动触发 AI 生成
+  // ----------------------------------------------------------
+  router.post('/trigger', (req, res) => {
+    try {
+      const { action } = req.body || {};
+      pendingTrigger = true;
+
+      console.log(
+        `[${MODULE_NAME}] 🎤 收到主动触发请求`,
+        action ? `(action=${action})` : '',
+        latestContext ? `当前上下文: ${latestContext.action} → 《${latestContext.note?.title || '?'}》` : '(无上下文)'
+      );
+
+      return res.json({
+        success: true,
+        message: 'Trigger 已设置，UI Extension 下次轮询时将触发 AI 生成',
+        has_context: latestContext !== null,
+      });
+    } catch (err) {
+      console.error(`[${MODULE_NAME}] ❌ trigger error:`, err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  console.log(`[${MODULE_NAME}] ✅ 路由已注册: inject, context, history, clear, trigger, status`);
 }
 
 async function exit() {
   latestContext = null;
   contextHistory = [];
+  pendingTrigger = false;
   console.log(`[${MODULE_NAME}] 👋 已卸载`);
 }
 

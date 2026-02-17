@@ -72,18 +72,35 @@ class Dispatcher:
         """
         将联动上下文分发到所有目标
 
+        分级策略:
+        - 所有 action: 推送数据到 SillyTavern + Webhooks
+        - like / comment: 额外触发 AI 主动生成
+        - read: 静默推送，不触发主动生成
+
         Returns:
             dict: 各目标的响应结果
         """
         results = {}
 
-        # 1. 推送到 SillyTavern
+        # 1. 推送数据到 SillyTavern（所有 action）
         st_result = await self._push_to_sillytavern(context)
         results["sillytavern"] = st_result
 
-        # 2. 推送到所有 Webhook
+        # 2. 主动触发 AI 生成（仅 like / comment）
+        if context.action in (ActionType.LIKE, ActionType.COMMENT):
+            trigger_result = await self._trigger_ai_generation(context)
+            results["ai_trigger"] = trigger_result
+            logger.info(
+                f"🎤 主动触发: action={context.action.value}, "
+                f"result={trigger_result}"
+            )
+        else:
+            logger.debug(
+                f"🔇 静默模式: action={context.action.value}, 不触发主动生成"
+            )
+
+        # 3. 推送到所有 Webhook
         for target in self._webhook_targets:
-            # 检查事件过滤
             if context.action not in target.events:
                 continue
             wh_result = await self._push_to_webhook(target, context)
@@ -143,6 +160,52 @@ class Dispatcher:
             return {"success": False, "error": f"HTTP {status}"}
         except httpx.HTTPError as e:
             logger.error(f"❌ SillyTavern 推送失败: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _trigger_ai_generation(
+        self, context: CompanionContext
+    ) -> dict:
+        """
+        通知 SillyTavern Server Plugin 触发 AI 主动生成
+
+        仅在 like / comment 时调用。
+        即使失败也不阻塞主流程。
+        """
+        url = (
+            settings.sillytavern_url.rstrip("/")
+            + "/api/plugins/companion-link/trigger"
+        )
+
+        headers = {"Content-Type": "application/json"}
+        if settings.sillytavern_api_key:
+            headers["Authorization"] = f"Bearer {settings.sillytavern_api_key}"
+
+        payload = {
+            "action": context.action.value,
+        }
+
+        try:
+            response = await self.client.post(
+                url, json=payload, headers=headers
+            )
+            response.raise_for_status()
+            logger.info(
+                f"🎤 AI 触发成功: {response.status_code}, "
+                f"action={context.action.value}"
+            )
+            return {"success": True, "status": response.status_code}
+        except httpx.ConnectError:
+            logger.warning(
+                f"⚠️ AI 触发失败: SillyTavern 未连接 ({url})"
+            )
+            return {"success": False, "error": "SillyTavern 未启动"}
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                f"⚠️ AI 触发失败 [{e.response.status_code}]: {e}"
+            )
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except httpx.HTTPError as e:
+            logger.warning(f"⚠️ AI 触发失败: {e}")
             return {"success": False, "error": str(e)}
 
     async def _push_to_webhook(
