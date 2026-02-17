@@ -19,7 +19,8 @@ const MAX_HISTORY = 50;
 
 let contextHistory = [];
 let latestContext = null;
-let pendingTrigger = false;  // 主动触发标志
+let latestSystemNote = null;  // 潜意识 System Note (read 积累)
+let pendingTrigger = false;   // 主动触发标志
 
 /**
  * @param {import('express').Router} router
@@ -33,7 +34,7 @@ async function init(router) {
   // ----------------------------------------------------------
   router.post('/inject', (req, res) => {
     try {
-      const { action, formatted_text, note, user_comment, timestamp } = req.body;
+      const { action, formatted_text, note, user_comment, timestamp, buffer_entries, buffer_summary } = req.body;
 
       if (!action) {
         return res.status(400).json({ success: false, error: 'Missing: action' });
@@ -47,6 +48,9 @@ async function init(router) {
         user_comment: user_comment || null,
         timestamp: timestamp || new Date().toISOString(),
         received_at: new Date().toISOString(),
+        // 缓冲区聚合数据 (title + tags)
+        buffer_entries: buffer_entries || [],
+        buffer_summary: buffer_summary || '',
       };
 
       latestContext = entry;
@@ -68,6 +72,39 @@ async function init(router) {
       });
     } catch (err) {
       console.error(`[${MODULE_NAME}] ❌ inject error:`, err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // POST /inject_system_note — 接收潜意识 System Note
+  // ----------------------------------------------------------
+  router.post('/inject_system_note', (req, res) => {
+    try {
+      const { text } = req.body;
+
+      if (!text) {
+        return res.status(400).json({ success: false, error: 'Missing: text' });
+      }
+
+      latestSystemNote = {
+        text,
+        updated_at: new Date().toISOString(),
+      };
+
+      console.log(
+        `[${MODULE_NAME}] 🧠 System Note 更新:`,
+        `${text.length} chars`,
+        `"${text.slice(0, 60)}..."`
+      );
+
+      return res.json({
+        success: true,
+        message: 'System Note updated',
+        length: text.length,
+      });
+    } catch (err) {
+      console.error(`[${MODULE_NAME}] ❌ inject_system_note error:`, err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -104,6 +141,8 @@ async function init(router) {
       context: latestContext,
       age_seconds: Math.round(ageSec),
       should_trigger: shouldTrigger,
+      // 潜意识 System Note (read 积累)
+      system_note: latestSystemNote ? latestSystemNote.text : null,
     });
   });
 
@@ -171,11 +210,12 @@ async function init(router) {
     }
   });
 
-  console.log(`[${MODULE_NAME}] ✅ 路由已注册: inject, context, history, clear, trigger, status`);
+  console.log(`[${MODULE_NAME}] ✅ 路由已注册: inject, inject_system_note, context, history, clear, trigger, status`);
 }
 
 async function exit() {
   latestContext = null;
+  latestSystemNote = null;
   contextHistory = [];
   pendingTrigger = false;
   console.log(`[${MODULE_NAME}] 👋 已卸载`);

@@ -40,6 +40,7 @@
 
   let latestContext = null;
   let lastContextId = localStorage.getItem('companion_link_last_id') || null;
+  let latestSystemNote = null;  // 潜意识 System Note (read 积累)
   let pollTimer = null;
   let isPluginAvailable = false;
 
@@ -148,6 +149,9 @@
       const data = await resp.json();
 
       if (data.available && data.context) {
+        // DEBUG: Force Log
+        console.log(`🔍 [Companion-Link] Poll Result: ID=${data.context.id}, LastID=${lastContextId}, Trigger=${data.should_trigger}`);
+
         const isNew = data.context.id !== lastContextId;
         if (isNew) {
           lastContextId = data.context.id;
@@ -161,12 +165,21 @@
             `(${data.age_seconds}s ago)`
           );
 
+
           // 显示通知
           if (settings.show_notification) {
             showNotification(data.context);
           }
 
-          updateStatusUI(true, data.context);
+          try {
+            updateStatusUI(true, data.context);
+          } catch (e) {
+            console.error('DEBUG: updateStatusUI FAIL:', e);
+          }
+
+        } else {
+            // DEBUG
+            console.log(`Duplicate Context Ignored (ID: ${data.context.id})`);
         }
 
         // ======== 主动触发 AI 生成 ========
@@ -174,7 +187,11 @@
         if (isNew && data.should_trigger) {
           log.info(`🎤 主动触发 AI 生成 (action=${data.context.action})`);
           // 注入到聊天历史（模拟用户发送，自带触发生成）
-          injectContextToChatHistory(data.context);
+          try {
+            injectContextToChatHistory(data.context);
+          } catch (e) {
+             console.error('DEBUG: injectContextToChatHistory FAIL:', e);
+          }
         }
 
         return data.context;
@@ -183,6 +200,12 @@
           log.debug('上下文已过期');
           latestContext = null;
           updateStatusUI(false);
+        }
+        // ======== 潜意识 System Note 更新 ========
+        // 独立于 latestContext，始终更新
+        if (data.system_note) {
+          latestSystemNote = data.system_note;
+          log.debug(`🧠 潜意识更新: ${data.system_note.slice(0, 50)}...`);
         }
         return null;
       }
@@ -235,18 +258,21 @@
   function injectContextToChatHistory(ctx) {
     try {
       const settings = getSettings();
+      console.log('DEBUG: Building Injection Text...');
       const injectionText = buildInjectionText(ctx, settings);
       
-      // DEBUG: 弹窗显示注入文本
-      // alert('DEBUG Injection Text:\n\n' + injectionText);
-      console.log('DEBUG Injection Text:', injectionText);
+      console.log('DEBUG: Injection Text Length:', injectionText ? injectionText.length : 0);
 
-      if (!injectionText) return;
+      if (!injectionText) {
+          console.error('DEBUG: Injection Text is EMPTY/NULL');
+          return;
+      }
 
       // 1. 获取输入框
       const textarea = $('#send_textarea');
       if (textarea.length === 0) {
         log.error('找不到输入框 #send_textarea');
+        console.error('DEBUG: #send_textarea not found');
         return;
       }
 
@@ -263,6 +289,7 @@
       // 这会由 SillyTavern 处理消息构建、UI更新和AI生成请求
       const sendBtn = $('#send_but');
       if (sendBtn.length > 0) {
+        console.log('DEBUG: Clicking Send Button...');
         sendBtn.click();
         
         // 标记已注入，避免拦截器重复注入
@@ -270,10 +297,12 @@
         log.info('✅ 模拟用户发送消息成功');
       } else {
         log.error('找不到发送按钮 #send_but');
+        console.error('DEBUG: #send_but not found');
       }
 
     } catch (err) {
       log.error('注入聊天历史失败:', err);
+      console.error('DEBUG: Injection Exception:', err);
     }
   }
 
@@ -318,7 +347,43 @@
     if (type === 'quiet') return;
 
     const settings = getSettings();
-    if (!settings.enabled || !latestContext) return;
+    if (!settings.enabled) return;
+
+    // ======== 1. 潜意识 System Note 注入 ========
+    // 非破坏性插入，不影响其他插件
+    if (latestSystemNote) {
+      // 检查是否已有 companion_link 的 system note，避免重复注入
+      const existingIdx = chat.findIndex(
+        m => m.extra?.companion_link_system_note === true
+      );
+      
+      const systemNoteMsg = {
+        role: 'system',
+        content: latestSystemNote,
+        is_user: false,
+        is_system: true,
+        send_date: Date.now(),
+        mes: latestSystemNote,
+        extra: {
+          type: 'narrator',
+          companion_link_system_note: true,
+        },
+      };
+
+      if (existingIdx >= 0) {
+        // 替换旧的 system note（非破坏性原地更新）
+        chat.splice(existingIdx, 1, systemNoteMsg);
+        log.debug('🧠 潜意识已更新 (replaced)');
+      } else {
+        // 插入到靠前位置（但不是第一个，保留系统提示词）
+        const insertPos = Math.min(1, chat.length);
+        chat.splice(insertPos, 0, systemNoteMsg);
+        log.debug('🧠 潜意识已注入 (new)');
+      }
+    }
+
+    // ======== 2. 主动触发上下文注入 ========
+    if (!latestContext) return;
 
     const ctx = latestContext;
 
@@ -433,12 +498,23 @@
 
     // 2. 系统指令 (System Instruction)
     // 强制 AI 进入角色，避免出戏
-    const instruction = `
-[System Note: 
-1. The content above is what {{user}} is showing you on their phone.
-2. Please react NATURALLY based on the current role-play scenario (e.g., date, battle, casual chat). 
-3. Do NOT repeat the content verbatim. Express your feelings/opinions about it.
-4. If the scenario is tense/inappropriate for phone browsing, you can react with surprise or annoyance.]`.trim();
+    let bufferContext = '';
+    const bufferEntries = ctx.buffer_entries || [];
+    if (bufferEntries.length > 0) {
+      const entriesStr = bufferEntries.slice(0, 3).map(e => {
+        // 标题截断
+        let title = e.title || '';
+        if (title.length > 15) title = title.slice(0, 15) + '...';
+        
+        // 标签限制 2 个
+        const tags = (e.tags || []).slice(0, 2).map(t => `「${t}」`).join('');
+        
+        return `「${title}」${tags ? '：' + tags : ''}`;
+      }).join('；');
+      bufferContext = ` {{user}}最近还刷了：${entriesStr}。如果发现关联可以自然提及。`;
+    }
+
+    const instruction = `[OOC: {{user}}正把手机屏幕给你看。请结合当前RP场景自然反应，表达感想而非复述内容。${bufferContext}]`;
 
     return `${intro}\n\n${formattedText}\n\n${instruction}`;
   }

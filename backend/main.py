@@ -20,6 +20,7 @@ from models import (
 from extractor import extractor
 from formatter import format_for_sillytavern
 from dispatcher import dispatcher
+from read_buffer import read_buffer
 
 # ============================================================
 # 日志配置
@@ -103,40 +104,97 @@ async def receive_signal(signal: SignalPayload):
             note_data = await extractor.extract(signal.note_url)
             logger.info(f"📄 后端提取完成: 《{note_data.title}》")
 
-        # Step 2: 格式化上下文
-        context = format_for_sillytavern(
-            action=signal.action,
-            note=note_data,
-            user_comment=signal.comment_text,
-        )
+        # ============================================================
+        # Step 2: 分级处理 (Tiered Dispatch)
+        # ============================================================
 
-        # Step 3: 分发到各目标（静默处理分发失败）
-        dispatch_results = await dispatcher.dispatch(context)
-        logger.info(f"📤 分发完成: {dispatch_results}")
+        if signal.action == ActionType.READ:
+            # -------- 静默感知路径 (Read → Buffer + System Note) --------
+            read_buffer.add(
+                title=note_data.title,
+                tags=note_data.tags,
+                url=signal.note_url,
+                author=note_data.author.nickname,
+            )
 
-        return APIResponse(
-            success=True,
-            message=f"信号处理完成: {signal.action.value} → 《{note_data.title}》",
-            data={
-                "note_id": note_data.note_id,
-                "title": note_data.title,
-                "source": "frontend" if signal.note_data else "backend",
-                "dispatch_results": dispatch_results,
-            },
-        )
+            # 构建潜意识 System Note
+            keywords = read_buffer.get_keywords_summary()
+            system_note_text = (
+                f"（潜意识感知：用户最近 15 分钟浏览了关于 {keywords} 的内容，"
+                f"仅作为背景参考，除非必要请勿主动提起。）"
+            ) if keywords else None
+
+            # 推送 System Note 到 SillyTavern（静默，无 chat 消息）
+            dispatch_results = {}
+            if system_note_text:
+                dispatch_results["system_note"] = await dispatcher.push_system_note(
+                    system_note_text
+                )
+            logger.info(
+                f"🔇 静默感知: 缓冲区={read_buffer.size()}, "
+                f"keywords='{keywords[:50]}'"
+            )
+
+            return APIResponse(
+                success=True,
+                message=f"静默感知: read → 《{note_data.title}》 (缓冲区 {read_buffer.size()} 条)",
+                data={
+                    "note_id": note_data.note_id,
+                    "title": note_data.title,
+                    "buffer_size": read_buffer.size(),
+                    "dispatch_results": dispatch_results,
+                },
+            )
+
+        else:
+            # -------- 主动触发路径 (Like/Comment → Format + Aggregate) --------
+            # Step 2a: 格式化当前笔记
+            context = format_for_sillytavern(
+                action=signal.action,
+                note=note_data,
+                user_comment=signal.comment_text,
+            )
+
+            # Step 2b: 聚合缓冲区上下文
+            buffer_entries = read_buffer.get_display_entries()
+            buffer_summary = read_buffer.get_keywords_summary()
+
+            # Step 3: 分发到各目标（附带缓冲区数据）
+            dispatch_results = await dispatcher.dispatch(
+                context,
+                buffer_entries=buffer_entries,
+                buffer_summary=buffer_summary,
+            )
+            logger.info(f"📤 分发完成: {dispatch_results}")
+
+            return APIResponse(
+                success=True,
+                message=f"信号处理完成: {signal.action.value} → 《{note_data.title}》",
+                data={
+                    "note_id": note_data.note_id,
+                    "title": note_data.title,
+                    "source": "frontend" if signal.note_data else "backend",
+                    "buffer_context": buffer_summary,
+                    "dispatch_results": dispatch_results,
+                },
+            )
 
     except Exception as e:
         logger.error(f"❌ 信号处理失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # 更新全局状态（无论分发是否成功，只要解析成功就更新）
-        if 'context' in locals():
+        # 更新全局状态 — 仅 like/comment 写入 LATEST_CONTEXT
+        # read 不写入，避免前端误触发
+        if 'context' in locals() and signal.action != ActionType.READ:
             global LATEST_CONTEXT
             should_trigger = signal.action in (ActionType.LIKE, ActionType.COMMENT)
-            
-            # 构建前端所需的精简上下文
+
+            # 聚合缓冲区数据
+            buf_entries = read_buffer.get_display_entries()
+            buf_summary = read_buffer.get_keywords_summary()
+
             LATEST_CONTEXT = {
-                "id": f"{context.timestamp.timestamp()}",
+                "id": f"cl_{int(context.timestamp.timestamp() * 1000)}_{_short_id()}",
                 "action": signal.action.value,
                 "should_trigger": should_trigger,
                 "timestamp": context.timestamp.isoformat(),
@@ -148,8 +206,14 @@ async def receive_signal(signal: SignalPayload):
                 },
                 "formatted_text": context.formatted_text,
                 "user_comment": context.user_comment,
+                # 新增: 缓冲区聚合数据 (title + tags)
+                "buffer_entries": buf_entries,
+                "buffer_summary": buf_summary,
             }
-            logger.debug(f"💾 上下文已更新: {LATEST_CONTEXT['id']} (Trigger={should_trigger})")
+            logger.debug(
+                f"🧠 Context 更新: {signal.action.value} | "
+                f"(Trigger={should_trigger}, Buffer={len(buf_entries)})"
+            )
 
 
 def _build_note_from_frontend(signal: SignalPayload):
@@ -288,6 +352,8 @@ async def test_format(note_url: str, action: ActionType = ActionType.LIKE):
 
 # 内存中的最新上下文（用于前端轮询）
 LATEST_CONTEXT = None
+# 最新的潜意识 System Note 文本
+LATEST_SYSTEM_NOTE = None
 
 
 @app.get("/latest_context")
@@ -301,9 +367,33 @@ async def get_latest_context():
     return LATEST_CONTEXT
 
 
+@app.get("/buffer/status")
+async def buffer_status():
+    """
+    调试端点：查看 ReadBuffer 当前状态
+    """
+    return read_buffer.status()
+
+
+@app.post("/buffer/clear")
+async def buffer_clear():
+    """
+    手动清空 ReadBuffer
+    """
+    read_buffer.clear()
+    return {"success": True, "message": "ReadBuffer 已清空"}
+
+
 # ============================================================
 # 启动入口
 # ============================================================
+
+def _short_id() -> str:
+    """生成短随机 ID (6 位)"""
+    import random
+    import string
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+
 
 if __name__ == "__main__":
     import uvicorn

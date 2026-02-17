@@ -68,7 +68,12 @@ class Dispatcher:
     # 数据分发
     # ============================================================
 
-    async def dispatch(self, context: CompanionContext) -> dict:
+    async def dispatch(
+        self,
+        context: CompanionContext,
+        buffer_entries: list[dict] | None = None,
+        buffer_summary: str | None = None,
+    ) -> dict:
         """
         将联动上下文分发到所有目标
 
@@ -83,7 +88,11 @@ class Dispatcher:
         results = {}
 
         # 1. 推送数据到 SillyTavern（所有 action）
-        st_result = await self._push_to_sillytavern(context)
+        st_result = await self._push_to_sillytavern(
+            context,
+            buffer_entries=buffer_entries,
+            buffer_summary=buffer_summary,
+        )
         results["sillytavern"] = st_result
 
         # 2. 主动触发 AI 生成（仅 like / comment）
@@ -108,8 +117,49 @@ class Dispatcher:
 
         return results
 
+    async def push_system_note(self, text: str) -> dict:
+        """
+        推送潜意识 System Note 到 SillyTavern Plugin
+
+        该方法不触发 chat 消息或 AI 生成，
+        仅更新 Server Plugin 中的 system_note 变量，
+        前端 interceptor 在下次 AI 生成时自动注入。
+        """
+        url = (
+            settings.sillytavern_url.rstrip("/")
+            + "/api/plugins/companion-link/inject_system_note"
+        )
+
+        headers = {"Content-Type": "application/json"}
+        if settings.sillytavern_api_key:
+            headers["Authorization"] = f"Bearer {settings.sillytavern_api_key}"
+
+        payload = {"text": text}
+
+        try:
+            response = await self.client.post(
+                url, json=payload, headers=headers
+            )
+            response.raise_for_status()
+            logger.info(
+                f"🧠 System Note 推送成功: "
+                f"{len(text)} chars → [{response.status_code}]"
+            )
+            return {"success": True, "status": response.status_code}
+        except httpx.ConnectError:
+            logger.warning(
+                f"⚠️ System Note 推送失败: SillyTavern 未连接 ({url})"
+            )
+            return {"success": False, "error": "SillyTavern 未启动"}
+        except httpx.HTTPError as e:
+            logger.warning(f"⚠️ System Note 推送失败: {e}")
+            return {"success": False, "error": str(e)}
+
     async def _push_to_sillytavern(
-        self, context: CompanionContext
+        self,
+        context: CompanionContext,
+        buffer_entries: list[dict] | None = None,
+        buffer_summary: str | None = None,
     ) -> dict:
         """推送数据到 SillyTavern Plugin"""
         url = (
@@ -127,6 +177,9 @@ class Dispatcher:
             "note": context.note.model_dump(mode="json"),
             "user_comment": context.user_comment,
             "timestamp": context.timestamp.isoformat(),
+            # 缓冲区聚合数据 (title + tags)
+            "buffer_entries": buffer_entries or [],
+            "buffer_summary": buffer_summary or "",
         }
 
         try:

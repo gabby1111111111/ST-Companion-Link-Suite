@@ -40,36 +40,41 @@ def format_for_sillytavern(
     action_desc = ACTION_DESCRIPTIONS.get(action, "浏览了")
 
     # --- 构建 "手机卡片" 样式 Markdown ---
-    # > 📱 **小红书笔记分享**
-    # > **Title**
-    # > @Author
-    # > Content...
-    # > Stats
+    # <details>
+    # <summary>📱 小红书笔记分享 · 点赞了</summary>
+    #
+    # > ─────────────────
+    # > ...
+    # </details>
 
     lines = [
-        f"> 📱 **小红书笔记分享 · {action_desc}**",
-        ">",
+        f"<details>",
+        f"<summary>📱 小红书笔记分享 · {action_desc}</summary>",
+        "",  # HTML标签后必须空一行才能正常渲染 Markdown 引用
+        "> ─────────────────",
     ]
 
-    # 标题 (加粗)
+    # 标题 (书名号)
     if note.title:
-        lines.append(f"> **{note.title.strip()}**")
+        lines.append(f"> 「{note.title.strip()}」")
     
-    # 作者 (@Nickname)
+    # 作者
     if note.author.nickname:
-        lines.append(f"> @{note.author.nickname.strip()}")
+        lines.append(f"> by {note.author.nickname.strip()}")
     
-    lines.append(">") # 空行分隔
+    lines.append(">")  # 空行分隔
 
-    # 正文摘要 (截断100字 + 省略号)
+    # 正文内容 (截断200字)
     if note.content_summary:
         content = note.content_summary.replace('\n', ' ').strip()
-        if len(content) > 100:
-            content = content[:100] + "..."
+        # 防止正文中的 # 被渲染成标题
+        content = content.replace('#', '＃')
+        if len(content) > 200:
+            content = content[:200] + "..."
         lines.append(f"> {content}")
-        lines.append(">") # 空行分隔
+        lines.append(">")
 
-    # 互动数据 (Emoji: ❤️ 1.2w | ⭐ 5k | 💬 100)
+    # 互动数据 + 标签 (合并到一行)
     inter = note.interaction
     stats = []
     if inter.like_count:
@@ -79,18 +84,36 @@ def format_for_sillytavern(
     if inter.comment_count:
         stats.append(f"💬 {_format_count(inter.comment_count)}")
     
-    if stats:
-        lines.append(f"> {'  '.join(stats)}")
+    stats_str = "  ".join(stats) if stats else ""
     
-    # 标签 (#Tag1 #Tag2)
+    # 标签用「」包裹，避免 # 被渲染成 markdown 标题
     if note.tags:
-        tags = [f"#{t}" for t in note.tags[:5]] # 最多5个
-        lines.append(f"> {' '.join(tags)}")
+        tag_str = " ".join(f"「{t}」" for t in note.tags[:5])
+        if stats_str:
+            lines.append(f"> {stats_str}  ｜  {tag_str}")
+        else:
+            lines.append(f"> {tag_str}")
+    elif stats_str:
+        lines.append(f"> {stats_str}")
 
-    # 用户自己的评论 (作为补充信息)
+    # Top 3 热门评论
+    if note.top_comments:
+        lines.append("> ─────────────────")
+        lines.append("> 💬 热门评论:")
+        for comment in note.top_comments[:3]:
+            nickname = comment.user_nickname or "匿名"
+            text = comment.content.replace('\n', ' ').strip()
+            if len(text) > 80:
+                text = text[:80] + "..."
+            likes = f" ({_format_count(comment.like_count)}❤️)" if comment.like_count else ""
+            lines.append(f"> › **{nickname}**: {text}{likes}")
+
+    # 用户自己的评论
     if user_comment:
-        lines.append(">")
-        lines.append(f"> 🗣️ **我的评论**: \"{user_comment}\"")
+        lines.append("> ─────────────────")
+        lines.append(f"> 🗣️ 我的评论: \"{user_comment}\"")
+
+    lines.append("</details>")
 
     formatted_text = "\n".join(lines)
 
