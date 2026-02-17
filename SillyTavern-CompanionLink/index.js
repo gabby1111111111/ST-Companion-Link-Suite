@@ -39,7 +39,7 @@
   // ============================================================
 
   let latestContext = null;
-  let lastContextId = null;
+  let lastContextId = localStorage.getItem('companion_link_last_id') || null;
   let pollTimer = null;
   let isPluginAvailable = false;
 
@@ -151,6 +151,7 @@
         const isNew = data.context.id !== lastContextId;
         if (isNew) {
           lastContextId = data.context.id;
+          localStorage.setItem('companion_link_last_id', lastContextId);
           latestContext = data.context;
 
           log.info(
@@ -393,103 +394,53 @@
    * - read 使用被动型指令，仅作为潜意识背景
    * - 每种 action 有独立的角色行为指引
    */
+
+  /**
+   * 构建注入到 AI 对话中的文本 (Narrative Scenario Style)
+   */
   function buildInjectionText(ctx, settings) {
-    const maxLen = settings.context_max_length || 1200;
-    const note = ctx.note || {};
+    const formattedText = ctx.formatted_text || '';
+    if (!formattedText) return null;
+
     const action = ctx.action;
-    const lines = [];
-
-    // ========== 场景设定 ==========
-    lines.push('（把手机屏幕凑过来给你看）');
-
-    // ========== 按 action 分级处理 ==========
-
-    if (action === 'like') {
-      lines.push(`快看这篇笔记！我刚刚点了个赞 ❤️`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
-      if (note.author?.nickname) lines.push(`作者：${note.author.nickname}`);
-      if (note.content_summary || note.content) {
-        const summary = (note.content_summary || note.content || '').substring(0, 200);
-        lines.push(`内容：${summary}`);
-      }
-      lines.push('');
-      lines.push('【系统提示：请立刻对这篇笔记发表感想，就像你正在和如果一起看手机一样。】');
-
-    } else if (action === 'comment') {
-      lines.push(`我刚忍不住在前这篇笔记下评论了一句！`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
-      if (ctx.user_comment) {
-        lines.push(`我说：「${ctx.user_comment}」`);
-      }
-      if (note.content_summary || note.content) {
-        const summary = (note.content_summary || note.content || '').substring(0, 150);
-        lines.push(`笔记是关于：${summary}`);
-      }
-      lines.push('');
-      lines.push('【系统提示：请针对如果是评论进行吐槽或互动。】');
-
-    } else if (action === 'read') {
-      lines.push(`（正在认真看这篇笔记...）`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
-      if (note.content_summary || note.content) {
-        const summary = (note.content_summary || note.content || '').substring(0, 150);
-        lines.push(`内容：${summary}`);
-      }
-      lines.push('');
-      lines.push('【系统提示：这是背景信息，如果如果没说话，你也不需要强行打断，静静陪伴即可。】');
-
-    } else if (action === 'collect') {
-      lines.push(`这篇笔记太棒了，我果断收藏了 ⭐`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
-      if (note.content_summary || note.content) {
-        const summary = (note.content_summary || note.content || '').substring(0, 200);
-        lines.push(`内容：${summary}`);
-      }
-      lines.push('');
-      lines.push('【系统提示：请对如果是收藏行为或笔记内容给予肯定或询问。】');
-
-    } else if (action === 'share') {
-      lines.push(`我把这篇笔记分享给你看看 🔗`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
-      if (note.content_summary || note.content) {
-        const summary = (note.content_summary || note.content || '').substring(0, 200);
-        lines.push(`内容：${summary}`);
-      }
-      lines.push('你觉得咋样？');
-
-    } else {
-      lines.push(`（正在看一篇关于 ${getActionLabel(action)} 的笔记）`);
-      if (note.title) lines.push(`标题：《${note.title}》`);
+    const note = ctx.note || {};
+    
+    // 1. 场景化旁白描述 (Narrative Intro)
+    // 使用 (parentheses) 描述动作，增强代入感
+    let intro = '';
+    
+    switch (action) {
+        case 'like':
+            intro = `（此时，{{user}} 把手机屏幕侧过来给你看，上面是他刚刚点赞的一篇笔记...）`;
+            break;
+        case 'comment':
+            const commentText = ctx.user_comment ? `“${ctx.user_comment}”` : '';
+            intro = `（{{user}} 指着手机屏幕上的一条评论说道：${commentText}，然后期待地看着你...）`;
+            break;
+        case 'collect':
+            intro = `（{{user}} 看起来很兴奋，把手机递给你看他刚收藏的内容...）`;
+            break;
+        case 'share':
+            intro = `（{{user}} 转发了一篇笔记给你，并说道：“快看这个！”...）`;
+            break;
+        case 'read':
+            intro = `（{{user}} 正在专注地看手机，屏幕上显示着...）`;
+            break;
+        default:
+            intro = `（{{user}} 把手机屏幕展示给你看...）`;
+            break;
     }
 
-    appendNoteStats(lines, note);
-    return lines.join('\n').substring(0, maxLen);
-  }
+    // 2. 系统指令 (System Instruction)
+    // 强制 AI 进入角色，避免出戏
+    const instruction = `
+[System Note: 
+1. The content above is what {{user}} is showing you on their phone.
+2. Please react NATURALLY based on the current role-play scenario (e.g., date, battle, casual chat). 
+3. Do NOT repeat the content verbatim. Express your feelings/opinions about it.
+4. If the scenario is tense/inappropriate for phone browsing, you can react with surprise or annoyance.]`.trim();
 
-  /**
-   * 向 lines 数组追加笔记互动统计（如有）
-   */
-  function appendNoteStats(lines, note) {
-    const interact = note.interaction;
-    if (!interact) return;
-    const stats = [];
-    if (interact.like_count) stats.push(`❤️ ${interact.like_count}`);
-    if (interact.collect_count) stats.push(`⭐ ${interact.collect_count}`);
-    if (interact.comment_count) stats.push(`💬 ${interact.comment_count}`);
-    if (stats.length > 0) lines.push(`互动数据：${stats.join(' · ')}`);
-  }
-
-  /**
-   * 行为标签
-   */
-  function getActionLabel(action) {
-    return {
-      like: '点赞',
-      comment: '评论',
-      read: '深度阅读',
-      collect: '收藏',
-      share: '分享',
-    }[action] || action;
+    return `${intro}\n\n${formattedText}\n\n${instruction}`;
   }
 
   // ============================================================
@@ -498,7 +449,6 @@
 
   function renderSettingsUI() {
     const settings = getSettings();
-
     const html = `
       <div id="cl-extension-settings" class="cl-extension-settings">
         <div class="inline-drawer">
