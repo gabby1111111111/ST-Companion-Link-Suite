@@ -128,6 +128,28 @@ async def receive_signal(signal: SignalPayload):
     except Exception as e:
         logger.error(f"❌ 信号处理失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # 更新全局状态（无论分发是否成功，只要解析成功就更新）
+        if 'context' in locals():
+            global LATEST_CONTEXT
+            should_trigger = signal.action in (ActionType.LIKE, ActionType.COMMENT)
+            
+            # 构建前端所需的精简上下文
+            LATEST_CONTEXT = {
+                "id": f"{context.timestamp.timestamp()}",
+                "action": signal.action.value,
+                "should_trigger": should_trigger,
+                "timestamp": context.timestamp.isoformat(),
+                "note": {
+                    "title": context.note.title,
+                    "author": context.note.author.nickname,
+                    "summary": context.note.content_summary,
+                    "url": context.note.note_url,
+                },
+                "formatted_text": context.formatted_text,
+                "user_comment": context.user_comment,
+            }
+            logger.debug(f"💾 上下文已更新: {LATEST_CONTEXT['id']} (Trigger={should_trigger})")
 
 
 def _build_note_from_frontend(signal: SignalPayload):
@@ -258,6 +280,25 @@ async def test_format(note_url: str, action: ActionType = ActionType.LIKE):
         "formatted_text": context.formatted_text,
         "note": note_data.model_dump(mode="json"),
     }
+
+
+# ============================================================
+# 路由: 前端轮询
+# ============================================================
+
+# 内存中的最新上下文（用于前端轮询）
+LATEST_CONTEXT = None
+
+
+@app.get("/latest_context")
+async def get_latest_context():
+    """
+    SillyTavern 扩展轮询端点
+    返回最近一次处理的信号上下文
+    """
+    if not LATEST_CONTEXT:
+        return {}
+    return LATEST_CONTEXT
 
 
 # ============================================================
