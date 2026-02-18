@@ -22,6 +22,7 @@ class ActionType(str, Enum):
     READ = "read"           # 长时间阅读 (>5秒)
     COLLECT = "collect"     # 收藏
     SHARE = "share"         # 分享
+    COIN = "coin"           # 投币 (Bilibili)
 
 
 class SignalPayload(BaseModel):
@@ -71,6 +72,7 @@ class NoteInteraction(BaseModel):
     collect_count: int = 0
     comment_count: int = 0
     share_count: int = 0
+    coin_count: int = 0  # Bilibili 投币
 
 
 class NoteData(BaseModel):
@@ -80,6 +82,9 @@ class NoteData(BaseModel):
     """
     note_id: str = Field(..., description="笔记 ID")
     note_url: str = Field(..., description="笔记原始 URL")
+    platform: str = Field(
+        default="xiaohongshu", description="平台: xiaohongshu/bilibili"
+    )
     title: str = Field(default="", description="笔记标题")
     content: str = Field(default="", description="笔记正文")
     content_summary: str = Field(default="", description="正文摘要")

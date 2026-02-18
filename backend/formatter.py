@@ -17,8 +17,8 @@ ACTION_DESCRIPTIONS = {
     ActionType.READ: "仔细阅读了",
     ActionType.COLLECT: "收藏了",
     ActionType.SHARE: "分享了",
+    ActionType.COIN: "投币了",
 }
-
 
 
 def format_for_sillytavern(
@@ -38,6 +38,16 @@ def format_for_sillytavern(
         CompanionContext: 包含预格式化文本的联动上下文
     """
     action_desc = ACTION_DESCRIPTIONS.get(action, "浏览了")
+    
+    # 平台区分逻辑
+    is_bilibili = getattr(note, "platform", "xiaohongshu") == "bilibili"
+    
+    if is_bilibili:
+        app_name = "Bilibili 视频分享"
+        header_icon = "📺"
+    else:
+        app_name = "小红书笔记分享"
+        header_icon = "📱"
 
     # --- 构建 "手机卡片" 样式 Markdown ---
     # <details>
@@ -49,7 +59,7 @@ def format_for_sillytavern(
 
     lines = [
         f"<details>",
-        f"<summary>📱 小红书笔记分享 · {action_desc}</summary>",
+        f"<summary>{header_icon} {app_name} · {action_desc}</summary>",
         "",  # HTML标签后必须空一行才能正常渲染 Markdown 引用
         "> ─────────────────",
     ]
@@ -77,12 +87,23 @@ def format_for_sillytavern(
     # 互动数据 + 标签 (合并到一行)
     inter = note.interaction
     stats = []
-    if inter.like_count:
-        stats.append(f"❤️ {_format_count(inter.like_count)}")
-    if inter.collect_count:
-        stats.append(f"⭐ {_format_count(inter.collect_count)}")
-    if inter.comment_count:
-        stats.append(f"💬 {_format_count(inter.comment_count)}")
+    
+    if is_bilibili:
+        # B站数据: 播放(暂无) 弹幕(暂无) 硬币 收藏
+        if getattr(inter, 'coin_count', 0):
+             stats.append(f"🪙 {_format_count(inter.coin_count)}")
+        if inter.like_count:
+             stats.append(f"👍 {_format_count(inter.like_count)}")
+        if inter.collect_count:
+             stats.append(f"⭐ {_format_count(inter.collect_count)}")
+    else:
+        # 小红书数据
+        if inter.like_count:
+            stats.append(f"❤️ {_format_count(inter.like_count)}")
+        if inter.collect_count:
+            stats.append(f"⭐ {_format_count(inter.collect_count)}")
+        if inter.comment_count:
+            stats.append(f"💬 {_format_count(inter.comment_count)}")
     
     stats_str = "  ".join(stats) if stats else ""
     
@@ -136,10 +157,11 @@ def _get_action_guidance(action: ActionType) -> str:
     return ""
 
 
-def _format_count(count: int) -> str:
+def _format_count(val: int | float) -> str:
     """将数字格式化为可读字符串 (如 12345 → 1.2w)"""
-    if not count:
+    if not val:
         return "0"
+    count = int(val)
     if count >= 10000:
         return f"{count / 10000:.1f}w"
     if count >= 1000:

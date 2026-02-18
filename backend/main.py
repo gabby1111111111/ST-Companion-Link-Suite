@@ -235,6 +235,7 @@ def _build_note_from_frontend(signal: SignalPayload):
         note_data = NoteData(
             note_id=fd.get("note_id") or signal.note_id or "unknown",
             note_url=signal.note_url,
+            platform=fd.get("platform", "xiaohongshu"),
             title=fd.get("title", "") or "",
             content=fd.get("content", "") or "",
             content_summary=(fd.get("content", "") or "")[:200],
@@ -249,6 +250,7 @@ def _build_note_from_frontend(signal: SignalPayload):
                 collect_count=interact_raw.get("collect_count", 0) or 0,
                 comment_count=interact_raw.get("comment_count", 0) or 0,
                 share_count=interact_raw.get("share_count", 0) or 0,
+                coin_count=interact_raw.get("coin_count", 0) or 0,
             ),
             top_comments=[
                 NoteComment(
