@@ -469,52 +469,67 @@
 
     const action = ctx.action;
     const note = ctx.note || {};
+    const platform = note.platform || 'xiaohongshu'; // 兼容旧数据
     
     // 1. 场景化旁白描述 (Narrative Intro)
-    // 使用 (parentheses) 描述动作，增强代入感
     let intro = '';
     
-    switch (action) {
-        case 'like':
-            intro = `（此时，{{user}} 把手机屏幕侧过来给你看，上面是他刚刚点赞的一篇笔记...）`;
-            break;
-        case 'comment':
-            const commentText = ctx.user_comment ? `“${ctx.user_comment}”` : '';
-            intro = `（{{user}} 指着手机屏幕上的一条评论说道：${commentText}，然后期待地看着你...）`;
-            break;
-        case 'collect':
-            intro = `（{{user}} 看起来很兴奋，把手机递给你看他刚收藏的内容...）`;
-            break;
-        case 'share':
-            intro = `（{{user}} 转发了一篇笔记给你，并说道：“快看这个！”...）`;
-            break;
-        case 'read':
-            intro = `（{{user}} 正在专注地看手机，屏幕上显示着...）`;
-            break;
-        default:
-            intro = `（{{user}} 把手机屏幕展示给你看...）`;
-            break;
+    if (platform === 'bilibili') {
+        // B站专属场景
+        intro = `（此时，{{user}} 正在电脑前刷 B 站，他把耳机分了你一半，屏幕上正在播放：${note.title || '未知视频'}...）`;
+    } else {
+        // 小红书 / 通用场景
+        switch (action) {
+            case 'like':
+                intro = `（此时，{{user}} 把手机屏幕侧过来给你看，上面是他刚刚点赞的一篇笔记...）`;
+                break;
+            case 'comment':
+                const commentText = ctx.user_comment ? `“${ctx.user_comment}”` : '';
+                intro = `（{{user}} 指着手机屏幕上的一条评论说道：${commentText}，然后期待地看着你...）`;
+                break;
+            case 'collect':
+                intro = `（{{user}} 看起来很兴奋，把手机递给你看他刚收藏的内容...）`;
+                break;
+            case 'share':
+                intro = `（{{user}} 转发了一篇笔记给你，并说道：“快看这个！”...）`;
+                break;
+            case 'read':
+                intro = `（{{user}} 正在专注地看手机，屏幕上显示着...）`;
+                break;
+            default:
+                intro = `（{{user}} 把手机屏幕展示给你看...）`;
+                break;
+        }
     }
 
     // 2. 系统指令 (System Instruction)
-    // 强制 AI 进入角色，避免出戏
     let bufferContext = '';
     const bufferEntries = ctx.buffer_entries || [];
     if (bufferEntries.length > 0) {
       const entriesStr = bufferEntries.slice(0, 3).map(e => {
-        // 标题截断
         let title = e.title || '';
         if (title.length > 15) title = title.slice(0, 15) + '...';
-        
-        // 标签限制 2 个
         const tags = (e.tags || []).slice(0, 2).map(t => `「${t}」`).join('');
-        
         return `「${title}」${tags ? '：' + tags : ''}`;
       }).join('；');
       bufferContext = ` {{user}}最近还刷了：${entriesStr}。如果发现关联可以自然提及。`;
     }
 
-    const instruction = `[OOC: {{user}}正把手机屏幕给你看。请结合当前RP场景自然反应，表达感想而非复述内容。${bufferContext}]`;
+    // B站专属神吐槽指令
+    let specialInstruction = "";
+    if (platform === 'bilibili') {
+        // 深度关联: 刷了很多只看不赞，突然投币 -> 真爱
+        if (action === 'coin' && bufferEntries.length > 2) {
+             specialInstruction += "【深度分析：用户此前连续浏览了多条相关内容但未互动，唯独对本视频投币了。请着重分析此视频相比前几个的独特魅力（如：终于找到了干货、UP主讲到了痛点等），并调侃用户终于舍得掏硬币了。】";
+        }
+        
+        // 进度吐槽
+        if (note.play_progress) {
+             specialInstruction += `[当前播放进度：${note.play_progress}。规则：1. 如果进度接近100%或已结束，请夸奖用户“竟然看完了长视频很有耐心”；2. 如果进度极低（<10%），请吐槽“刚打开就投币/互动？是不是被标题骗进来的”或者“太快了吧”。]`;
+        }
+    }
+
+    const instruction = `[OOC: {{user}}正把屏幕展示给你看。请结合当前RP场景自然反应，表达感想而非复述内容。${bufferContext}${specialInstruction}]`;
 
     return `${intro}\n\n${formattedText}\n\n${instruction}`;
   }
