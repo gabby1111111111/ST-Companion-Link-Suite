@@ -410,5 +410,126 @@ class XiaohongshuExtractor:
         return 0
 
 
+# 全局提取器实例 (Unified)
+# extractor = XiaohongshuExtractor()
+
+
+class BilibiliExtractor:
+    """
+    Bilibili 视频数据提取器
+    """
+    def __init__(self, client: httpx.AsyncClient):
+        self.client = client
+        self.bv_pattern = re.compile(r"/(BV[0-9a-zA-Z]+)")
+
+    def parse_note_id(self, url: str) -> Optional[str]:
+        """从 URL 解析 BV 号"""
+        match = self.bv_pattern.search(url)
+        return match.group(1) if match else None
+
+    async def extract(self, url: str) -> NoteData:
+        bv_id = self.parse_note_id(url) or ""
+        
+        try:
+            response = await self.client.get(url)
+            response.raise_for_status()
+            html = response.text
+        except Exception as e:
+            logger.error(f"❌ Bilibili 请求失败: {e}")
+            return NoteData(note_id=bv_id, note_url=url, title="[提取失败]", platform="bilibili")
+
+        # 1. 尝试从 __INITIAL_STATE__ 提取
+        # window.__INITIAL_STATE__={...}
+        data = self._extract_initial_state(html)
+        if data:
+            video_data = data.get("videoData", {})
+            stat = video_data.get("stat", {})
+            owner = video_data.get("owner", {})
+            
+            return NoteData(
+                note_id=bv_id,
+                note_url=url,
+                platform="bilibili",
+                title=video_data.get("title", ""),
+                content=video_data.get("desc", ""),
+                content_summary=video_data.get("desc", "")[:200],
+                note_type="video",
+                author=NoteAuthor(
+                    user_id=str(owner.get("mid", "")),
+                    nickname=owner.get("name", ""),
+                    avatar_url=owner.get("face", ""),
+                ),
+                interaction=NoteInteraction(
+                    like_count=stat.get("like", 0),
+                    collect_count=stat.get("favorite", 0),
+                    comment_count=stat.get("reply", 0),
+                    share_count=stat.get("share", 0),
+                    coin_count=stat.get("coin", 0),
+                ),
+                tags=[tag.get("tag_name") for tag in data.get("tags", [])] if "tags" in data else [],
+                images=[video_data.get("pic", "")],
+                created_at=str(video_data.get("pubdate", "")),
+            )
+
+        # 2. 降级到 Meta 标签提取
+        soup = BeautifulSoup(html, "lxml")
+        title = soup.select_one('meta[property="og:title"]')['content'] if soup.select_one('meta[property="og:title"]') else ""
+        desc = soup.select_one('meta[property="og:description"]')['content'] if soup.select_one('meta[property="og:description"]') else ""
+        cover = soup.select_one('meta[property="og:image"]')['content'] if soup.select_one('meta[property="og:image"]') else ""
+        author_name = soup.select_one('meta[name="author"]')['content'] if soup.select_one('meta[name="author"]') else ""
+        
+        return NoteData(
+            note_id=bv_id,
+            note_url=url,
+            platform="bilibili",
+            title=title.replace("_哔哩哔哩_bilibili", "").strip(),
+            content=desc,
+            content_summary=desc[:200],
+            note_type="video",
+            author=NoteAuthor(nickname=author_name),
+            images=[cover] if cover else []
+        )
+
+    def _extract_initial_state(self, html: str) -> Optional[dict]:
+        try:
+            match = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.+?\});", html, re.DOTALL)
+            if match:
+                import json
+                return json.loads(match.group(1))
+        except:
+            pass
+        return None
+
+
+class UnifiedExtractor:
+    """
+    统一数据提取器 (Facade)
+    根据 URL 自动分发到对应平台的提取器
+    """
+    def __init__(self):
+        self.client = httpx.AsyncClient(
+            timeout=settings.extract_timeout,
+            headers={
+                "User-Agent": settings.user_agent,
+            },
+            follow_redirects=True,
+        )
+        self.xhs = XiaohongshuExtractor()  # XHS internally uses its own client, TODO: optimize
+        self.xhs.client = self.client # Share client? XHS headers are specific. Keep separate for now.
+        # XHS needs specific headers, so let's keep XHS's own client in its __init__
+        # But we can reuse it if we refactor XHS. For now, let's just instantiate Bilibili with a specialized client.
+        
+        self.bili = BilibiliExtractor(self.client)
+
+    async def close(self):
+        await self.xhs.close()
+        await self.client.aclose()
+
+    async def extract(self, url: str) -> NoteData:
+        if "bilibili.com" in url:
+            return await self.bili.extract(url)
+        return await self.xhs.extract(url)
+
+
 # 全局提取器实例
-extractor = XiaohongshuExtractor()
+extractor = UnifiedExtractor()

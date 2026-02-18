@@ -96,6 +96,7 @@ class NoteData(BaseModel):
     tags: list[str] = Field(default_factory=list, description="标签")
     images: list[str] = Field(default_factory=list, description="图片 URL 列表")
     note_type: str = Field(default="normal", description="笔记类型: normal/video")
+    play_progress: str = Field(default="", description="播放进度 (仅Bilibili)")
     created_at: Optional[str] = Field(None, description="笔记发布时间")
     extracted_at: datetime = Field(
         default_factory=datetime.now,

@@ -240,6 +240,7 @@ def _build_note_from_frontend(signal: SignalPayload):
             content=fd.get("content", "") or "",
             content_summary=(fd.get("content", "") or "")[:200],
             note_type=fd.get("note_type", "normal") or "normal",
+            play_progress=fd.get("play_progress", ""),
             author=NoteAuthor(
                 user_id=author_raw.get("user_id", ""),
                 nickname=author_raw.get("nickname", ""),

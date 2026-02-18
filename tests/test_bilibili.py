@@ -16,6 +16,7 @@ async def test_bilibili_signal():
             "platform": "bilibili",
             "title": "【4K60FPS】G I D L E - Super Lady",
             "content": "Original 4K source...",
+            "play_progress": "03:45 / 04:20",
             "author": {
                 "nickname": "KpopFancam",
                 "user_id": "12345"

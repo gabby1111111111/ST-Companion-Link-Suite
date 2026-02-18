@@ -160,11 +160,24 @@
       const coinEl = document.querySelector('.coin-info, .video-coin');
       const coinCount = coinEl ? parseInt(coinEl.textContent.trim()) || 0 : 0;
 
+      // 播放进度
+      let progress = "";
+      const video = document.querySelector('video');
+      if (video && video.duration) {
+          const fmt = t => {
+              const m = Math.floor(t / 60);
+              const s = Math.floor(t % 60);
+              return `${m}:${s.toString().padStart(2, '0')}`;
+          };
+          progress = `${fmt(video.currentTime)} / ${fmt(video.duration)}`;
+      }
+
       return {
         note_id: bvId,
         title: title,
         content: desc,
         platform: "bilibili",
+        play_progress: progress,
         author: {
             nickname: author,
             user_id: "",

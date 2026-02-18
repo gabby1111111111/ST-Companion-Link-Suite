@@ -43,24 +43,16 @@ def format_for_sillytavern(
     is_bilibili = getattr(note, "platform", "xiaohongshu") == "bilibili"
     
     if is_bilibili:
-        app_name = "Bilibili 视频分享"
-        header_icon = "📺"
-    else:
-        app_name = "小红书笔记分享"
-        header_icon = "📱"
+        return _format_bilibili_card(action, action_desc, note, user_comment)
 
-    # --- 构建 "手机卡片" 样式 Markdown ---
-    # <details>
-    # <summary>📱 小红书笔记分享 · 点赞了</summary>
-    #
-    # > ─────────────────
-    # > ...
-    # </details>
+    # --- 构建 "手机卡片" 样式 Markdown (小红书) ---
+    app_name = "小红书笔记分享"
+    header_icon = "📱"
 
     lines = [
         f"<details>",
         f"<summary>{header_icon} {app_name} · {action_desc}</summary>",
-        "",  # HTML标签后必须空一行才能正常渲染 Markdown 引用
+        "",
         "> ─────────────────",
     ]
 
@@ -77,37 +69,24 @@ def format_for_sillytavern(
     # 正文内容 (截断200字)
     if note.content_summary:
         content = note.content_summary.replace('\n', ' ').strip()
-        # 防止正文中的 # 被渲染成标题
         content = content.replace('#', '＃')
         if len(content) > 200:
             content = content[:200] + "..."
         lines.append(f"> {content}")
         lines.append(">")
 
-    # 互动数据 + 标签 (合并到一行)
+    # 互动数据 + 标签
     inter = note.interaction
     stats = []
-    
-    if is_bilibili:
-        # B站数据: 播放(暂无) 弹幕(暂无) 硬币 收藏
-        if getattr(inter, 'coin_count', 0):
-             stats.append(f"🪙 {_format_count(inter.coin_count)}")
-        if inter.like_count:
-             stats.append(f"👍 {_format_count(inter.like_count)}")
-        if inter.collect_count:
-             stats.append(f"⭐ {_format_count(inter.collect_count)}")
-    else:
-        # 小红书数据
-        if inter.like_count:
-            stats.append(f"❤️ {_format_count(inter.like_count)}")
-        if inter.collect_count:
-            stats.append(f"⭐ {_format_count(inter.collect_count)}")
-        if inter.comment_count:
-            stats.append(f"💬 {_format_count(inter.comment_count)}")
+    if inter.like_count:
+        stats.append(f"❤️ {_format_count(inter.like_count)}")
+    if inter.collect_count:
+        stats.append(f"⭐ {_format_count(inter.collect_count)}")
+    if inter.comment_count:
+        stats.append(f"💬 {_format_count(inter.comment_count)}")
     
     stats_str = "  ".join(stats) if stats else ""
     
-    # 标签用「」包裹，避免 # 被渲染成 markdown 标题
     if note.tags:
         tag_str = " ".join(f"「{t}」" for t in note.tags[:5])
         if stats_str:
@@ -117,32 +96,12 @@ def format_for_sillytavern(
     elif stats_str:
         lines.append(f"> {stats_str}")
 
-    # Top 3 热门评论
-    if note.top_comments:
-        lines.append("> ─────────────────")
-        lines.append("> 💬 热门评论:")
-        for comment in note.top_comments[:3]:
-            nickname = comment.user_nickname or "匿名"
-            text = comment.content.replace('\n', ' ').strip()
-            if len(text) > 80:
-                text = text[:80] + "..."
-            likes = f" ({_format_count(comment.like_count)}❤️)" if comment.like_count else ""
-            lines.append(f"> › **{nickname}**: {text}{likes}")
-
-    # 用户自己的评论
-    if user_comment:
-        lines.append("> ─────────────────")
-        lines.append(f"> 🗣️ 我的评论: \"{user_comment}\"")
+    _append_comments_and_user_input(lines, note, user_comment)
 
     lines.append("</details>")
-
+    
     formatted_text = "\n".join(lines)
-
-    logger.info(
-        f"📝 格式化完成: action={action.value}, "
-        f"title={note.title[:20]}..., "
-        f"length={len(formatted_text)}"
-    )
+    logger.info(f"📝 格式化完成 (XHS): {len(formatted_text)} chars")
 
     return CompanionContext(
         action=action,
@@ -150,6 +109,98 @@ def format_for_sillytavern(
         user_comment=user_comment,
         formatted_text=formatted_text,
     )
+
+
+def _format_bilibili_card(
+    action: ActionType,
+    action_desc: str,
+    note: NoteData,
+    user_comment: str | None
+) -> CompanionContext:
+    """
+    Bilibili 专属粉色卡片样式
+    📺 Bilibili · {{action}}
+    UP主: {{author}}
+    进度: {{play_progress}}
+    """
+    lines = [
+        f"<details>",
+        f"<summary>📺 Bilibili · {action_desc}</summary>",
+        "",
+        "> ─────────────────",
+    ]
+
+    # 1. 标题
+    if note.title:
+        lines.append(f"> 🍡 **{note.title.strip()}**")
+    
+    # 2. UP主 + 进度
+    infos = []
+    if note.author.nickname:
+        infos.append(f"UP主: {note.author.nickname}")
+    if note.play_progress:
+        infos.append(f"进度: {note.play_progress}")
+    
+    if infos:
+        lines.append(f"> {'  '.join(infos)}")
+    
+    lines.append(">")
+
+    # 3. 简介 (可选)
+    if note.content_summary:
+        content = note.content_summary.replace('\n', ' ').strip()[:100]
+        if content:
+            lines.append(f"> {content}...")
+            lines.append(">")
+
+    # 4. 互动数据 (硬币/三连)
+    inter = note.interaction
+    stats = []
+    if inter.coin_count:
+        stats.append(f"🪙 {_format_count(inter.coin_count)}")
+    if inter.like_count:
+        stats.append(f"👍 {_format_count(inter.like_count)}")
+    if inter.collect_count:
+        stats.append(f"⭐ {_format_count(inter.collect_count)}")
+
+    stats_str = "  ".join(stats)
+    
+    # 5. 分区/Tags
+    tag_str = ""
+    if note.tags:
+        tag_str = " ".join(f"#{t}" for t in note.tags[:3])
+    
+    if stats_str or tag_str:
+        lines.append(f"> {stats_str}   {tag_str}")
+
+    _append_comments_and_user_input(lines, note, user_comment)
+
+    lines.append("</details>")
+
+    formatted_text = "\n".join(lines)
+    logger.info(f"📝 格式化完成 (Bilibili): {len(formatted_text)} chars")
+
+    return CompanionContext(
+        action=action,
+        note=note,
+        user_comment=user_comment,
+        formatted_text=formatted_text,
+    )
+
+
+def _append_comments_and_user_input(lines: list, note: NoteData, user_comment: str | None):
+    """通用：追加热门评论和用户输入"""
+    if note.top_comments:
+        lines.append("> ─────────────────")
+        lines.append("> 💬 热门弹幕/评论:")
+        for comment in note.top_comments[:3]:
+            nickname = comment.user_nickname or "用户"
+            text = comment.content.replace('\n', ' ').strip()[:50]
+            lines.append(f"> › {nickname}: {text}")
+
+    if user_comment:
+        lines.append("> ─────────────────")
+        lines.append(f"> 🗣️ 我的评论: \"{user_comment}\"")
 
 
 def _get_action_guidance(action: ActionType) -> str:
