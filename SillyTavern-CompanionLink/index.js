@@ -218,7 +218,11 @@
       if (!resp.ok) return null;
 
       const data = await resp.json();
-      if (data.system_telemetry) latestTelemetry = data.system_telemetry; // Update on valid context too
+      
+      // Passive Telemetry Update
+      if (data.context && data.context.system_telemetry) {
+          latestTelemetry = data.context.system_telemetry;
+      }
 
       if (data.available && data.context) {
         // DEBUG: Force Log
@@ -661,34 +665,36 @@
     // ============================================================
     // 5. Sensory Perception (Phase 17: System Telemetry)
     // ============================================================
+    // ============================================================
+    // 5. Sensory Perception & Stage Setting (Phase 19: Passive Telemetry)
+    // ============================================================
     let sensoryObservation = "";
     if (latestTelemetry) {
-        // Memory Pressure -> Heat/Fan Noise
-        if (latestTelemetry.memory_pressure) {
+        
+        // 5a. Stage Setting (History)
+        const lastSession = latestTelemetry.last_session;
+        if (lastSession && lastSession.type === 'gaming' && lastSession.minutes_ago < 30) {
+             sensoryObservation += `（此时，{{char}} 注意到他终于关掉了运行了 ${lastSession.duration_minutes} 分钟的《${lastSession.name}》，正靠在椅子上休息... 电脑的热气还没散去...）\n`;
+        }
+        
+        // 5b. Resource Perception (Heat)
+        // Check CPU Load or Memory Pressure
+        const resources = latestTelemetry.resources || {};
+        if (resources.memory_pressure || (resources.cpu_load && resources.cpu_load > 80)) {
             sensoryObservation += `（主机箱的风扇声似乎比平时喧嚣了一些，空气里隐约透着一丝电子元件全速运转的热度...）\n`;
         }
         
-        // Activity State (Gaming / Coding)
+        // 5c. Current Activity
         const activity = latestTelemetry.activity;
-        
-        if (activity) {
-            if (activity.status === 'active') {
-                if (activity.type === 'coding') {
-                    sensoryObservation += `（键盘的敲击声此起彼伏，{{user}} 似乎进入了某种“心流”状态，屏幕上的代码行云流水般滚动...）\n`;
-                } else if (activity.type === 'gaming') {
-                    sensoryObservation += `（{{user}} 的神情专注而紧绷，鼠标点击声变得急促，屏幕上光影交错，战斗正酣...）\n`;
-                }
-            } else if (activity.status === 'cooldown') {
-                if (activity.type === 'coding') {
-                    sensoryObservation += `（{{char}} 看着 {{user}} 终于停下了飞舞的手指，长舒一口气，那是完成了一段复杂逻辑后的如释重负...）\n`;
-                } else if (activity.type === 'gaming') {
-                    if (activity.duration_minutes > 30) {
-                        sensoryObservation += `（{{char}} 注意到 {{user}} 揉了揉有些发酸的手腕，眼神里透着一场漫长恶战后的疲惫与满足...）\n`;
-                    } else {
-                        sensoryObservation += `（{{user}} 刚刚结束了一场短暂的战斗，看起来意犹未尽...）\n`;
-                    }
-                }
-            }
+        if (activity && activity.status === 'active') {
+             if (activity.type === 'coding') {
+                  sensoryObservation += `（键盘的敲击声此起彼伏，{{user}} 似乎进入了某种“心流”状态，屏幕上的代码行云流水般滚动...）\n`;
+             } else if (activity.type === 'gaming') { 
+                  // If we are injecting a note, it means user alt-tabbed or dual screen?
+                  if (platform !== 'bilibili') {
+                       sensoryObservation += `（电脑后台似乎运行着大型程序，{{user}} 的注意力显得有些分散...）\n`;
+                  }
+             }
         }
     }
 

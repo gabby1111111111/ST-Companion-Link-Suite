@@ -206,6 +206,8 @@ class Dispatcher:
             # 缓冲区聚合数据 (title + tags)
             "buffer_entries": buffer_entries or [],
             "buffer_summary": buffer_summary or "",
+            # 遥测数据
+            "system_telemetry": context.system_telemetry or {},
         }
 
         try:

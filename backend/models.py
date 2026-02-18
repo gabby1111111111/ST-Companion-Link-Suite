@@ -120,6 +120,10 @@ class CompanionContext(BaseModel):
         default="", description="预格式化的注入文本"
     )
     timestamp: datetime = Field(default_factory=datetime.now)
+    # 遥测数据
+    system_telemetry: Optional[dict] = Field(
+        None, description="系统遥测数据 (Passive)"
+    )
 
 
 # ============================================================

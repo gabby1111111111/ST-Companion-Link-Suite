@@ -52,34 +52,19 @@ async def lifespan(app: FastAPI):
     logger.info(f"   SillyTavern: {settings.sillytavern_url}")
     logger.info(f"   已注册 Webhook: {len(dispatcher.list_webhooks())} 个")
     
-    # 启动遥测后台任务
-    telemetry_task = asyncio.create_task(telemetry_loop())
+    logger.info(f"   已注册 Webhook: {len(dispatcher.list_webhooks())} 个")
+    
+    # 启动 System Observer (但不开启自动推送 Loop)
+    system_observer.start()
     
     yield
     
     logger.info("👋 Companion-Link Backend 正在关闭...")
-    telemetry_task.cancel()
-    try:
-        await telemetry_task
-    except asyncio.CancelledError:
-        pass
         
     await extractor.close()
     await dispatcher.close()
 
-async def telemetry_loop():
-    """后台任务：定期推送系统遥测数据"""
-    logger.info("📡 System Telemetry Loop Started (Interval: 20s)")
-    while True:
-        try:
-            telemetry = system_observer.encrypt_telemetry()
-            await dispatcher.dispatch_telemetry(telemetry)
-            await asyncio.sleep(20)
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error(f"Telemetry Loop Error: {e}")
-            await asyncio.sleep(20)
+# Removed telemetry_loop: Passive Mode Enabled (Phase 19)
 
 
 # ============================================================
@@ -184,6 +169,8 @@ async def receive_signal(signal: SignalPayload):
                 note=note_data,
                 user_comment=signal.comment_text,
             )
+            # Inject Passive Telemetry
+            context.system_telemetry = system_observer.capture_snapshot()
 
             # Step 2b: 聚合缓冲区上下文
             buffer_entries = read_buffer.get_display_entries()
@@ -239,6 +226,8 @@ async def receive_signal(signal: SignalPayload):
                 # 新增: 缓冲区聚合数据 (title + tags)
                 "buffer_entries": buf_entries,
                 "buffer_summary": buf_summary,
+                # 遥测
+                "system_telemetry": context.system_telemetry,
             }
             logger.debug(
                 f"🧠 Context 更新: {signal.action.value} | "
@@ -398,6 +387,12 @@ async def get_latest_context():
     if not LATEST_CONTEXT:
         return {}
     return LATEST_CONTEXT
+
+
+@app.get("/telemetry/current")
+async def get_current_telemetry():
+    """调试端点：获取当前系统遥测快照"""
+    return system_observer.capture_snapshot()
 
 
 @app.get("/buffer/status")

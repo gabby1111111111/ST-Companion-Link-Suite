@@ -52,6 +52,8 @@ async function init(router) {
         // 缓冲区聚合数据 (title + tags)
         buffer_entries: buffer_entries || [],
         buffer_summary: buffer_summary || '',
+        // 系统遥测 (Passive Injection)
+        system_telemetry: req.body.system_telemetry || null,
       };
 
       latestContext = entry;
