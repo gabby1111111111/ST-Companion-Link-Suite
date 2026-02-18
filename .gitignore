@@ -16,3 +16,11 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Logs & Cache
+*.log
+*.pkl
+*.bak
+*.tmp
+__pycache__/
+*.py[cod]
