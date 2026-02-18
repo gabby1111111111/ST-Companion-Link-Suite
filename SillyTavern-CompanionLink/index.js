@@ -661,6 +661,27 @@
     if (hits.length > 0) {
         draftInstruction = `\n[系统提示：检测到跨平台关联。若想帮助用户互动，请在回复末尾以此格式拟定评论草稿：(拟稿: 你的评论内容)]`;
     }
+    
+    // Phase 20: Gaming -> Content Linkage
+    // 如果刚玩完游戏，又在看这个游戏的视频 -> 触发拟稿
+    if (latestTelemetry && latestTelemetry.last_session) {
+        const ls = latestTelemetry.last_session;
+        if (ls.type === 'gaming' && ls.minutes_ago < 60) {
+            // Check if content matches game name
+            const gameName = ls.name || "";
+            // Simple keyword match (e.g. "Wuthering Waves" or "鸣潮")
+            // In monitor.py we have normalized names. 
+            // We need to match against currentTags or title.
+            // Simplified logic: Check if title/tags includes game name keywords
+            
+            const isRelated = titleKeywords.some(k => gameName.includes(k)) || 
+                              [...currentTags].some(t => gameName.includes(t) || t.includes(gameName));
+                              
+            if (isRelated) {
+                draftInstruction = `\n[系统提示：检测到用户刚结束《${gameName}》并正在观看相关内容。请结合他的游戏体验（刚玩了 ${ls.duration_minutes} 分钟），拟定一条“玩家视角的”评论草稿。格式：(拟稿: ...)]`;
+            }
+        }
+    }
 
     // ============================================================
     // 5. Sensory Perception (Phase 17: System Telemetry)
