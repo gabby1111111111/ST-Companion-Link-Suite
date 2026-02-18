@@ -41,6 +41,7 @@
   let latestContext = null;
   let lastContextId = localStorage.getItem('companion_link_last_id') || null;
   let latestSystemNote = null;  // 潜意识 System Note (read 积累)
+  let latestTelemetry = null;   // 系统遥测 (Process & Memory)
   let pollTimer = null;
   let isPluginAvailable = false;
 
@@ -217,6 +218,7 @@
       if (!resp.ok) return null;
 
       const data = await resp.json();
+      if (data.system_telemetry) latestTelemetry = data.system_telemetry; // Update on valid context too
 
       if (data.available && data.context) {
         // DEBUG: Force Log
@@ -278,6 +280,12 @@
           latestSystemNote = data.system_note;
           log.debug(`🧠 潜意识更新: ${data.system_note.slice(0, 50)}...`);
         }
+        
+        // ======== 系统遥测更新 ========
+        if (data.system_telemetry) {
+            latestTelemetry = data.system_telemetry;
+        }
+        
         return null;
       }
     } catch (err) {
@@ -650,8 +658,38 @@
         draftInstruction = `\n[系统提示：检测到跨平台关联。若想帮助用户互动，请在回复末尾以此格式拟定评论草稿：(拟稿: 你的评论内容)]`;
     }
 
+    // ============================================================
+    // 5. Sensory Perception (Phase 17: System Telemetry)
+    // ============================================================
+    let sensoryObservation = "";
+    if (latestTelemetry) {
+        // Memory Pressure -> Heat/Fan Noise
+        if (latestTelemetry.memory_pressure) {
+            sensoryObservation += `（主机箱的风扇声似乎比平时喧嚣了一些，空气里隐约透着一丝电子元件全速运转的热度...）\n`;
+        }
+        
+        // Gaming Cooldown -> Fatigue
+        const gaming = latestTelemetry.gaming_session;
+        if (gaming && gaming.status === 'cooldown') {
+             // Only mention fatigue if session was long (mock logic or real if duration avail)
+             // Duration is available in telemetry
+             if (gaming.duration_minutes > 30) {
+                 sensoryObservation += `（{{char}} 注意到 {{user}} 揉了揉有些发酸的手腕，眼神里透着一场漫长恶战后的疲惫与满足...）\n`;
+             } else {
+                 sensoryObservation += `（{{user}} 刚刚结束了一场短暂的战斗，看起来意犹未尽...）\n`;
+             }
+        } else if (gaming && gaming.status === 'gaming') {
+             // Currently Gaming
+             // If we are injecting a note, it means user alt-tabbed or dual screen?
+             if (platform !== 'bilibili') { // Don't conflict with Bilibili watching
+                 sensoryObservation += `（电脑后台似乎运行着大型程序，{{user}} 的注意力显得有些分散...）\n`;
+             }
+        }
+    }
+
     const narrativeBody = `
 ${vibeIntro}
+${sensoryObservation}
 ${internalMonologue}
 ${detailObservation}
 （空气里有一瞬间的安静。）${draftInstruction}`.trim();

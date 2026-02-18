@@ -21,6 +21,11 @@ from extractor import extractor
 from formatter import format_for_sillytavern
 from dispatcher import dispatcher
 from read_buffer import read_buffer
+from monitor import SystemObserver
+import asyncio
+
+# 全局 System Observer
+system_observer = SystemObserver()
 
 # ============================================================
 # 日志配置
@@ -46,10 +51,35 @@ async def lifespan(app: FastAPI):
     logger.info(f"   监听地址: {settings.host}:{settings.port}")
     logger.info(f"   SillyTavern: {settings.sillytavern_url}")
     logger.info(f"   已注册 Webhook: {len(dispatcher.list_webhooks())} 个")
+    
+    # 启动遥测后台任务
+    telemetry_task = asyncio.create_task(telemetry_loop())
+    
     yield
+    
     logger.info("👋 Companion-Link Backend 正在关闭...")
+    telemetry_task.cancel()
+    try:
+        await telemetry_task
+    except asyncio.CancelledError:
+        pass
+        
     await extractor.close()
     await dispatcher.close()
+
+async def telemetry_loop():
+    """后台任务：定期推送系统遥测数据"""
+    logger.info("📡 System Telemetry Loop Started (Interval: 20s)")
+    while True:
+        try:
+            telemetry = system_observer.encrypt_telemetry()
+            await dispatcher.dispatch_telemetry(telemetry)
+            await asyncio.sleep(20)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Telemetry Loop Error: {e}")
+            await asyncio.sleep(20)
 
 
 # ============================================================

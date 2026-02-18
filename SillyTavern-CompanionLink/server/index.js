@@ -20,6 +20,7 @@ const MAX_HISTORY = 50;
 let contextHistory = [];
 let latestContext = null;
 let latestSystemNote = null;  // 潜意识 System Note (read 积累)
+let latestTelemetry = null;   // 系统遥测数据 (Process & Memory)
 let pendingTrigger = false;   // 主动触发标志
 
 /**
@@ -143,7 +144,34 @@ async function init(router) {
       should_trigger: shouldTrigger,
       // 潜意识 System Note (read 积累)
       system_note: latestSystemNote ? latestSystemNote.text : null,
+      // 系统遥测数据
+      system_telemetry: latestTelemetry,
     });
+  });
+
+  // ----------------------------------------------------------
+  // POST /telemetry — 接收系统遥测数据
+  // ----------------------------------------------------------
+  router.post('/telemetry', (req, res) => {
+    try {
+        const telemetry = req.body;
+        if (!telemetry) {
+            return res.status(400).json({ success: false, error: 'Missing body' });
+        }
+        
+        latestTelemetry = {
+            ...telemetry,
+            updated_at: new Date().toISOString()
+        };
+        
+        // Log sparingly? Or no log to avoid spam
+        // console.log(`[${MODULE_NAME}] 📡 Telemetry updated`);
+        
+        return res.json({ success: true });
+    } catch(err) {
+        console.error(`[${MODULE_NAME}] ❌ telemetry error:`, err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // ----------------------------------------------------------

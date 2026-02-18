@@ -120,7 +120,7 @@ class Dispatcher:
     async def push_system_note(self, text: str) -> dict:
         """
         推送潜意识 System Note 到 SillyTavern Plugin
-
+        
         该方法不触发 chat 消息或 AI 生成，
         仅更新 Server Plugin 中的 system_note 变量，
         前端 interceptor 在下次 AI 生成时自动注入。
@@ -153,6 +153,32 @@ class Dispatcher:
             return {"success": False, "error": "SillyTavern 未启动"}
         except httpx.HTTPError as e:
             logger.warning(f"⚠️ System Note 推送失败: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def dispatch_telemetry(self, telemetry: dict) -> dict:
+        """
+        推送系统遥测数据到 SillyTavern Plugin (POST /telemetry)
+        """
+        url = (
+            settings.sillytavern_url.rstrip("/")
+            + "/api/plugins/companion-link/telemetry"
+        )
+        
+        headers = {"Content-Type": "application/json"}
+        if settings.sillytavern_api_key:
+            headers["Authorization"] = f"Bearer {settings.sillytavern_api_key}"
+
+        try:
+            # Fire and forget mostly, but we log errors
+            response = await self.client.post(
+                url, json=telemetry, headers=headers
+            )
+            response.raise_for_status()
+            # logger.debug(f"📡 Telemetry pushed: {response.status_code}")
+            return {"success": True, "status": response.status_code}
+        except Exception as e:
+            # Silent fail for telemetry to avoid log spam
+            # logger.debug(f"Telemetry push failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def _push_to_sillytavern(
