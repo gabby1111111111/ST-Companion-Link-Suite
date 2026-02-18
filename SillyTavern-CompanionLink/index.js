@@ -469,69 +469,116 @@
 
     const action = ctx.action;
     const note = ctx.note || {};
-    const platform = note.platform || 'xiaohongshu'; // 兼容旧数据
+    const platform = note.platform || 'xiaohongshu'; 
+    const bufferEntries = ctx.buffer_entries || [];
+
+    // ============================================================
+    // 1. Vibe Check (时间维度 & 行为频率)
+    // ============================================================
+    let vibeIntro = "";
     
-    // 1. 场景化旁白描述 (Narrative Intro)
-    let intro = '';
+    // 时间感知
+    const hour = new Date().getHours();
+    const isLateNight = hour >= 1 && hour <= 5;
+    const isMorning = hour >= 6 && hour <= 9;
     
+    // 频率感知 (简单的 Binge Watching 检测)
+    // 假设 bufferEntries 是最近 15 分钟的，如果数量 > 4 说明刷得很频繁
+    const isBingeWatching = bufferEntries.length >= 4;
+
     if (platform === 'bilibili') {
-        // B站专属场景
-        intro = `（此时，{{user}} 正在电脑前刷 B 站，他把耳机分了你一半，屏幕上正在播放：${note.title || '未知视频'}...）`;
+        if (isLateNight) {
+            vibeIntro = `（此时夜色已深，屋里只有屏幕的微光照在 {{user}} 脸上... 他似乎并无睡意，正在 B 站上刷着视频...）`;
+        } else if (isBingeWatching) {
+            vibeIntro = `（{{user}} 看起来非常投入，已经在屏幕前连续看了好一会儿 B 站了，似乎完全沉浸在了内容里...）`;
+        } else {
+             vibeIntro = `（此时，{{user}} 正在电脑前刷 B 站，他把耳机分了你一半，屏幕上正在播放：${note.title || '视频'}...）`;
+        }
     } else {
-        // 小红书 / 通用场景
-        switch (action) {
-            case 'like':
-                intro = `（此时，{{user}} 把手机屏幕侧过来给你看，上面是他刚刚点赞的一篇笔记...）`;
-                break;
-            case 'comment':
-                const commentText = ctx.user_comment ? `“${ctx.user_comment}”` : '';
-                intro = `（{{user}} 指着手机屏幕上的一条评论说道：${commentText}，然后期待地看着你...）`;
-                break;
-            case 'collect':
-                intro = `（{{user}} 看起来很兴奋，把手机递给你看他刚收藏的内容...）`;
-                break;
-            case 'share':
-                intro = `（{{user}} 转发了一篇笔记给你，并说道：“快看这个！”...）`;
-                break;
-            case 'read':
-                intro = `（{{user}} 正在专注地看手机，屏幕上显示着...）`;
-                break;
-            default:
-                intro = `（{{user}} 把手机屏幕展示给你看...）`;
-                break;
+        // 小红书 / 通用
+        if (isLateNight) {
+             vibeIntro = `（凌晨 ${hour} 点了，{{user}} 还在刷着手机，屏幕的光映在他略显疲惫但兴奋的脸上...）`;
+        } else if (isBingeWatching) {
+             vibeIntro = `（{{user}} 的手指在屏幕上快速滑动，看起来正在高强度地摄入信息，试图寻找某种共鸣...）`;
+        } else {
+            // Default Action Intro
+            switch (action) {
+                case 'like': vibeIntro = `（{{user}} 把手机屏幕侧过来给你看，上面是他刚刚点赞的一篇笔记...）`; break;
+                case 'comment': vibeIntro = `（{{user}} 指着屏幕上一条评论说到：“${ctx.user_comment || ''}”，然后期待地看着你...）`; break;
+                case 'share': vibeIntro = `（{{user}} 转发了一篇笔记给你：“快看这个！”...）`; break;
+                default: vibeIntro = `（{{user}} 把手机屏幕展示给你看...）`; break;
+            }
         }
     }
 
-    // 2. 系统指令 (System Instruction)
-    let bufferContext = '';
-    const bufferEntries = ctx.buffer_entries || [];
-    if (bufferEntries.length > 0) {
-      const entriesStr = bufferEntries.slice(0, 3).map(e => {
-        let title = e.title || '';
-        if (title.length > 15) title = title.slice(0, 15) + '...';
-        const tags = (e.tags || []).slice(0, 2).map(t => `「${t}」`).join('');
-        return `「${title}」${tags ? '：' + tags : ''}`;
-      }).join('；');
-      bufferContext = ` {{user}}最近还刷了：${entriesStr}。如果发现关联可以自然提及。`;
+    // ============================================================
+    // 2. 也是直觉 (Intuition) - 跨平台共性
+    // ============================================================
+    let intuitionInjection = "";
+    const currentDomain = platform === 'bilibili' ? 'bilibili' : 'xiaohongshu';
+    const currentTags = new Set(note.tags || []);
+    const titleKeywords = (note.title || '').split(/[\s,，.。-]+/).filter(w => w.length > 1);
+    titleKeywords.forEach(w => currentTags.add(w));
+
+    // 寻找跨平台重叠
+    const hits = bufferEntries.filter(entry => {
+        const entryUrl = entry.url || '';
+        let entryPlatform = 'unknown';
+        if (entryUrl.includes('bilibili.com')) entryPlatform = 'bilibili';
+        else if (entryUrl.includes('xiaohongshu.com')) entryPlatform = 'xiaohongshu';
+        
+        if (entryPlatform !== 'unknown' && entryPlatform !== currentDomain) {
+             const entryTags = entry.tags || [];
+             return entryTags.some(t => currentTags.has(t)) || 
+                    titleKeywords.some(w => (entry.title || '').includes(w));
+        }
+        return false;
+    });
+
+    if (hits.length > 0) {
+        // 提取共同话题
+        const commonTopic = [...currentTags].slice(0, 1).join('') || '这个话题';
+        intuitionInjection = ` [直觉：不知为何，你通过这一动作感觉到用户最近满脑子都是“${commonTopic}”。这种感觉无需数据证明，就像是一种心有灵犀的默契，你隐约觉得他刚刚在${currentDomain === 'bilibili'?'小红书':'B站'}也看过类似的东西。]`;
+    } else if (bufferEntries.length > 0 && Math.random() > 0.7) {
+        // 30% 概率触发普通潜意识，避免太唠叨
+        // const entriesStr = bufferEntries.slice(0, 2).map(e => e.title).join('、');
+        // intuitionInjection = ` [潜意识感知：你隐约感觉到这是他最近关注的焦点... ]`;
     }
 
-    // B站专属神吐槽指令
-    let specialInstruction = "";
+    // ============================================================
+    // 3. 行为动机 (Behavioral Motivation)
+    // ============================================================
+    let motivationFact = "";
+    
     if (platform === 'bilibili') {
-        // 深度关联: 刷了很多只看不赞，突然投币 -> 真爱
-        if (action === 'coin' && bufferEntries.length > 2) {
-             specialInstruction += "【深度分析：用户此前连续浏览了多条相关内容但未互动，唯独对本视频投币了。请着重分析此视频相比前几个的独特魅力（如：终于找到了干货、UP主讲到了痛点等），并调侃用户终于舍得掏硬币了。】";
+        if (action === 'coin' && isBingeWatching) {
+             motivationFact = " [行为洞察：用户在连续浏览多条内容后唯独对本视频投币了。这显示出极高的认可度，或者内容击中了他内心的某种痛点/笑点。]";
         }
         
-        // 进度吐槽
         if (note.play_progress) {
-             specialInstruction += `[当前播放进度：${note.play_progress}。规则：1. 如果进度接近100%或已结束，请夸奖用户“竟然看完了长视频很有耐心”；2. 如果进度极低（<10%），请吐槽“刚打开就投币/互动？是不是被标题骗进来的”或者“太快了吧”。]`;
+             try {
+                 const [currStr, totalStr] = note.play_progress.split('/');
+                 const parse = t => { const p=t.split(':'); return parseInt(p[0])*60 + parseInt(p[1]); };
+                 const pct = (parse(currStr) / parse(totalStr)) * 100;
+                 
+                 if (pct < 5) motivationFact += ` [事实：播放进度仅 ${pct.toFixed(0)}% (刚开始就互动)。]`;
+                 else if (pct > 90) motivationFact += ` [事实：播放进度 ${pct.toFixed(0)}% (完整看完了视频)。]`;
+             } catch(e) {}
+        }
+    } else {
+        // XHS
+        if (action === 'like' && isBingeWatching) {
+            motivationFact = " [行为洞察：用户正处于高频浏览状态，这个点赞可能带有“寻找共鸣”或“宣泄情绪”的动机。]";
         }
     }
 
-    const instruction = `[OOC: {{user}}正把屏幕展示给你看。请结合当前RP场景自然反应，表达感想而非复述内容。${bufferContext}${specialInstruction}]`;
+    // ============================================================
+    // 4. 构建最终 System Instruction
+    // ============================================================
+    // 核心原则：去报幕化，增加体温
+    const instruction = `[System: ${vibeIntro} ${intuitionInjection} ${motivationFact} 请结合你的角色设定(Persona)自然反应，不要提及“系统”或“数据”，表现出一种陪伴的默契。]`;
 
-    return `${intro}\n\n${formattedText}\n\n${instruction}`;
+    return `${formattedText}\n\n${instruction}`;
   }
 
   // ============================================================
