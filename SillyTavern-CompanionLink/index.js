@@ -473,22 +473,20 @@
     const bufferEntries = ctx.buffer_entries || [];
 
     // ============================================================
-    // 1. Vibe Check (时间维度 & 行为频率)
+    // 1. Vibe Check (环境 & 状态旁白)
     // ============================================================
     let vibeIntro = "";
     
-    // 时间感知
     const hour = new Date().getHours();
     const isLateNight = hour >= 1 && hour <= 5;
-    const isMorning = hour >= 6 && hour <= 9;
+    // const isMorning = hour >= 6 && hour <= 9;
     
-    // 频率感知 (简单的 Binge Watching 检测)
-    // 假设 bufferEntries 是最近 15 分钟的，如果数量 > 4 说明刷得很频繁
+    // 频率感知 (Binge Watching)
     const isBingeWatching = bufferEntries.length >= 4;
 
     if (platform === 'bilibili') {
         if (isLateNight) {
-            vibeIntro = `（此时夜色已深，屋里只有屏幕的微光照在 {{user}} 脸上... 他似乎并无睡意，正在 B 站上刷着视频...）`;
+            vibeIntro = `（夜色已深，屋里只有屏幕的微光照在 {{user}} 脸上... 他似乎并无睡意，正在 B 站上刷着视频...）`;
         } else if (isBingeWatching) {
             vibeIntro = `（{{user}} 看起来非常投入，已经在屏幕前连续看了好一会儿 B 站了，似乎完全沉浸在了内容里...）`;
         } else {
@@ -512,9 +510,9 @@
     }
 
     // ============================================================
-    // 2. 也是直觉 (Intuition) - 跨平台共性
+    // 2. Intuition (内心独白) - 跨平台共性
     // ============================================================
-    let intuitionInjection = "";
+    let internalMonologue = "";
     const currentDomain = platform === 'bilibili' ? 'bilibili' : 'xiaohongshu';
     const currentTags = new Set(note.tags || []);
     const titleKeywords = (note.title || '').split(/[\s,，.。-]+/).filter(w => w.length > 1);
@@ -538,21 +536,21 @@
     if (hits.length > 0) {
         // 提取共同话题
         const commonTopic = [...currentTags].slice(0, 1).join('') || '这个话题';
-        intuitionInjection = ` [直觉：不知为何，你通过这一动作感觉到用户最近满脑子都是“${commonTopic}”。这种感觉无需数据证明，就像是一种心有灵犀的默契，你隐约觉得他刚刚在${currentDomain === 'bilibili'?'小红书':'B站'}也看过类似的东西。]`;
-    } else if (bufferEntries.length > 0 && Math.random() > 0.7) {
-        // 30% 概率触发普通潜意识，避免太唠叨
-        // const entriesStr = bufferEntries.slice(0, 2).map(e => e.title).join('、');
-        // intuitionInjection = ` [潜意识感知：你隐约感觉到这是他最近关注的焦点... ]`;
+        internalMonologue = `（{{char}} 隐约觉得，他最近好像对“${commonTopic}”格外上心，这种似曾相识的感觉...）`;
     }
 
     // ============================================================
-    // 3. 行为动机 (Behavioral Motivation)
+    // 3. Motivation (细微观察)
     // ============================================================
-    let motivationFact = "";
+    let detailObservation = "";
     
     if (platform === 'bilibili') {
-        if (action === 'coin' && isBingeWatching) {
-             motivationFact = " [行为洞察：用户在连续浏览多条内容后唯独对本视频投币了。这显示出极高的认可度，或者内容击中了他内心的某种痛点/笑点。]";
+        if (action === 'coin') {
+             if (isBingeWatching) {
+                detailObservation = `（他划走了那么多，唯独在这个视频前停下并投了币... {{char}} 注意到了这个细节。）`;
+             } else {
+                detailObservation = `（{{char}} 看到他毫不犹豫地投了币，眼神里带着认可。）`;
+             }
         }
         
         if (note.play_progress) {
@@ -561,24 +559,28 @@
                  const parse = t => { const p=t.split(':'); return parseInt(p[0])*60 + parseInt(p[1]); };
                  const pct = (parse(currStr) / parse(totalStr)) * 100;
                  
-                 if (pct < 5) motivationFact += ` [事实：播放进度仅 ${pct.toFixed(0)}% (刚开始就互动)。]`;
-                 else if (pct > 90) motivationFact += ` [事实：播放进度 ${pct.toFixed(0)}% (完整看完了视频)。]`;
+                 if (pct < 5) detailObservation += `\n（但进度条才刚开始走... 这就投币了？{{char}} 挑了挑眉。）`;
+                 else if (pct > 90) detailObservation += `\n（{{char}} 注意到进度条已经走到了最后，看来他是真的看进去了。）`;
              } catch(e) {}
         }
     } else {
         // XHS
         if (action === 'like' && isBingeWatching) {
-            motivationFact = " [行为洞察：用户正处于高频浏览状态，这个点赞可能带有“寻找共鸣”或“宣泄情绪”的动机。]";
+             detailObservation = `（在连续快速的刷屏后，他终于在这个内容上停留了片刻并点了赞。）`;
         }
     }
 
     // ============================================================
-    // 4. 构建最终 System Instruction
+    // 4. 构建最终叙事 (Prompt 3.0: Pure Narrative)
     // ============================================================
-    // 核心原则：去报幕化，增加体温
-    const instruction = `[System: ${vibeIntro} ${intuitionInjection} ${motivationFact} 请结合你的角色设定(Persona)自然反应，不要提及“系统”或“数据”，表现出一种陪伴的默契。]`;
+    
+    const narrativeBody = `
+${vibeIntro}
+${internalMonologue}
+${detailObservation}
+（空气里有一瞬间的安静。）`.trim();
 
-    return `${formattedText}\n\n${instruction}`;
+    return `${formattedText}\n\n${narrativeBody}`;
   }
 
   // ============================================================
