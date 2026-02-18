@@ -244,7 +244,8 @@
     const now = Date.now();
     
     // 防抖
-    if (_sentSignals.has(key) && (now - _sentSignals.get(key) < config.debounceMs)) return;
+    const debounceTime = action === 'coin' ? 3000 : config.debounceMs;
+    if (_sentSignals.has(key) && (now - _sentSignals.get(key) < debounceTime)) return;
     _sentSignals.set(key, now);
 
     const data = adapter.extractData(noteId);
