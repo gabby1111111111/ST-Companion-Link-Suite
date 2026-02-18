@@ -668,22 +668,27 @@
             sensoryObservation += `（主机箱的风扇声似乎比平时喧嚣了一些，空气里隐约透着一丝电子元件全速运转的热度...）\n`;
         }
         
-        // Gaming Cooldown -> Fatigue
-        const gaming = latestTelemetry.gaming_session;
-        if (gaming && gaming.status === 'cooldown') {
-             // Only mention fatigue if session was long (mock logic or real if duration avail)
-             // Duration is available in telemetry
-             if (gaming.duration_minutes > 30) {
-                 sensoryObservation += `（{{char}} 注意到 {{user}} 揉了揉有些发酸的手腕，眼神里透着一场漫长恶战后的疲惫与满足...）\n`;
-             } else {
-                 sensoryObservation += `（{{user}} 刚刚结束了一场短暂的战斗，看起来意犹未尽...）\n`;
-             }
-        } else if (gaming && gaming.status === 'gaming') {
-             // Currently Gaming
-             // If we are injecting a note, it means user alt-tabbed or dual screen?
-             if (platform !== 'bilibili') { // Don't conflict with Bilibili watching
-                 sensoryObservation += `（电脑后台似乎运行着大型程序，{{user}} 的注意力显得有些分散...）\n`;
-             }
+        // Activity State (Gaming / Coding)
+        const activity = latestTelemetry.activity;
+        
+        if (activity) {
+            if (activity.status === 'active') {
+                if (activity.type === 'coding') {
+                    sensoryObservation += `（键盘的敲击声此起彼伏，{{user}} 似乎进入了某种“心流”状态，屏幕上的代码行云流水般滚动...）\n`;
+                } else if (activity.type === 'gaming') {
+                    sensoryObservation += `（{{user}} 的神情专注而紧绷，鼠标点击声变得急促，屏幕上光影交错，战斗正酣...）\n`;
+                }
+            } else if (activity.status === 'cooldown') {
+                if (activity.type === 'coding') {
+                    sensoryObservation += `（{{char}} 看着 {{user}} 终于停下了飞舞的手指，长舒一口气，那是完成了一段复杂逻辑后的如释重负...）\n`;
+                } else if (activity.type === 'gaming') {
+                    if (activity.duration_minutes > 30) {
+                        sensoryObservation += `（{{char}} 注意到 {{user}} 揉了揉有些发酸的手腕，眼神里透着一场漫长恶战后的疲惫与满足...）\n`;
+                    } else {
+                        sensoryObservation += `（{{user}} 刚刚结束了一场短暂的战斗，看起来意犹未尽...）\n`;
+                    }
+                }
+            }
         }
     }
 
