@@ -130,10 +130,80 @@
     return headers;
   }
 
+  // ============================================================
+  // Semi-Automatic Session UI (Phase 16)
+  // ============================================================
+  function setupDraftButtonObserver() {
+      // 监听聊天区域变化
+      const chatQuery = '#chat'; // SillyTavern 聊天区域 ID
+      const targetNode = document.querySelector(chatQuery);
+      if (!targetNode) return;
+
+      const observer = new MutationObserver((mutationsList) => {
+          for(const mutation of mutationsList) {
+              if (mutation.type === 'childList') {
+                  mutation.addedNodes.forEach(node => {
+                       if (node.nodeType === 1 && node.classList.contains('mes')) { 
+                            // 检查最后一条消息
+                            processDraftButton(node);
+                       }
+                  });
+              }
+          }
+      });
+      observer.observe(targetNode, { childList: true, subtree: true });
+      
+      // 初始检查最后一条
+      const lastMsg = document.querySelector('.mes:last-child');
+      if (lastMsg) processDraftButton(lastMsg);
+  }
+
+  function processDraftButton(msgNode) {
+       if (msgNode.querySelector('.cl-draft-btn')) return; // 已添加
+
+       const text = msgNode.innerText;
+       const match = text.match(/\(拟稿:\s*(.*?)\)/);
+       
+       if (match && match[1]) {
+           const draftContent = match[1];
+           const btn = document.createElement('div');
+           btn.className = 'cl-draft-btn';
+           btn.innerHTML = '🔗 跨平台一键点评';
+           btn.style.cssText = 'cursor: pointer; color: #ff69b4; font-weight: bold; margin-top: 5px; border: 1px solid #ff69b4; padding: 2px 8px; border-radius: 4px; display: inline-block;';
+           
+           btn.onclick = async () => {
+               // 1. 复制文本
+               try {
+                   await navigator.clipboard.writeText(draftContent);
+                   // 2. 打开当前 URL (从 window.latestContext 获取)
+                   if (window.latestContext && window.latestContext.note && window.latestContext.note.url) {
+                        window.open(window.latestContext.note.url, '_blank');
+                   } else {
+                        alert('评论已复制，但未找到当前视频 URL');
+                   }
+                   btn.innerText = '✅ 已复制并跳转';
+               } catch(e) {
+                   console.error('Copy failed', e);
+                   alert('复制失败，请手动复制');
+               }
+           };
+           
+           // 添加到消息气泡内部
+           const contentDiv = msgNode.querySelector('.mes_text');
+           if (contentDiv) contentDiv.appendChild(btn);
+       }
+  }
+
   /**
    * 从 Server Plugin 拉取最新上下文
    */
   async function fetchLatestContext() {
+    // 启动 Draft Observer (如果尚未启动)
+    if (!window.draftObserverStarted) {
+         setupDraftButtonObserver();
+         window.draftObserverStarted = true;
+    }
+
     const settings = getSettings();
     if (!settings.enabled) return null;
 
@@ -157,6 +227,7 @@
           lastContextId = data.context.id;
           localStorage.setItem('companion_link_last_id', lastContextId);
           latestContext = data.context;
+          window.latestContext = data.context; // Expose for UI Button
 
           log.info(
             `📦 新上下文:`,
@@ -570,15 +641,20 @@
         }
     }
 
-    // ============================================================
-    // 4. 构建最终叙事 (Prompt 3.0: Pure Narrative)
+    // 4. 构建最终叙事 (Prompt 3.0: Pure Narrative + Draft Instruction)
     // ============================================================
     
+    // 如果存在跨平台共性，引导 AI 拟定评论
+    let draftInstruction = "";
+    if (hits.length > 0) {
+        draftInstruction = `\n[系统提示：检测到跨平台关联。若想帮助用户互动，请在回复末尾以此格式拟定评论草稿：(拟稿: 你的评论内容)]`;
+    }
+
     const narrativeBody = `
 ${vibeIntro}
 ${internalMonologue}
 ${detailObservation}
-（空气里有一瞬间的安静。）`.trim();
+（空气里有一瞬间的安静。）${draftInstruction}`.trim();
 
     return `${formattedText}\n\n${narrativeBody}`;
   }
