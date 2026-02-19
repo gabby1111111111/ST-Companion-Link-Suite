@@ -82,6 +82,23 @@
 
 ---
 
+## ⚙️ 高级配置 (Customization)
+
+### 添加新游戏/应用监控
+想让 AI 知道你在玩《黑神话：悟空》或写代码？
+1. 打开 `backend/games.json` 文件。
+2. 在 `apps` 列表中添加一项：
+   ```json
+   {
+       "exe": "b1-Win64-Shipping.exe",
+       "name": "黑神话：悟空",
+       "type": "gaming"
+   }
+   ```
+3. 重启后端 (`python main.py`) 即可生效。
+
+---
+
 ## 🛠️ 常见问题
 
 **Q: 游戏联动没触发？**

@@ -620,6 +620,10 @@
         // 提取共同话题
         const commonTopic = [...currentTags].slice(0, 1).join('') || '这个话题';
         internalMonologue = `（{{char}} 隐约觉得，他最近好像对“${commonTopic}”格外上心，这种似曾相识的感觉...）`;
+    } else if (currentTags.size > 0) {
+        // Fallback: 提及当前 Tags
+        const tagsStr = [...currentTags].slice(0, 3).join('、');
+        internalMonologue = `（{{char}} 扫了一眼标签：${tagsStr}，若有所思...）`;
     }
 
     // ============================================================
@@ -678,7 +682,12 @@
                               [...currentTags].some(t => gameName.includes(t) || t.includes(gameName));
                               
             if (isRelated) {
-                draftInstruction = `\n[系统提示：检测到用户刚结束《${gameName}》并正在观看相关内容。请结合他的游戏体验（刚玩了 ${ls.duration_minutes} 分钟），拟定一条“玩家视角的”评论草稿。格式：(拟稿: ...)]`;
+                let commentsCtx = "";
+                if (data.context && data.context.note && data.context.note.hot_comments && data.context.note.hot_comments.length > 0) {
+                    commentsCtx = `\n同时，他可能看到了那条高赞评论：“${data.context.note.hot_comments[0]}”。`;
+                }
+                
+                draftInstruction = `\n[系统提示：检测到用户刚结束《${gameName}》并正在观看相关内容。${commentsCtx}请结合他的游戏体验（刚玩了 ${ls.duration_minutes} 分钟），拟定一条“玩家视角的”评论草稿。如果那条热评很有趣，可以试着复读或吐槽它。格式：(拟稿: ...)]`;
             }
         }
     }
@@ -699,10 +708,20 @@
         }
         
         // 5b. Resource Perception (Heat)
-        // Check CPU Load or Memory Pressure
         const resources = latestTelemetry.resources || {};
         if (resources.memory_pressure || (resources.cpu_load && resources.cpu_load > 80)) {
             sensoryObservation += `（主机箱的风扇声似乎比平时喧嚣了一些，空气里隐约透着一丝电子元件全速运转的热度...）\n`;
+        }
+        
+        // Bilibili Vibe (Phase 26)
+        // Use ctx directly, as data.context is not available here.
+        if (ctx.note && ctx.note.online_count !== undefined) {
+             const online = ctx.note.online_count;
+             if (online > 0 && online < 10) {
+                 sensoryObservation += `（屏幕上的弹幕稀稀拉拉，这个冷门视频似乎构建了一个静谧的私人空间...）\n`;
+             } else if (online > 1000) {
+                 sensoryObservation += `（弹幕疯狂刷屏，右上角显示数千人同时在线，一种强烈的“全网共鸣”感扑面而来...）\n`;
+             }
         }
         
         // 5c. Current Activity
@@ -711,18 +730,34 @@
              if (activity.type === 'coding') {
                   sensoryObservation += `（键盘的敲击声此起彼伏，{{user}} 似乎进入了某种“心流”状态，屏幕上的代码行云流水般滚动...）\n`;
              } else if (activity.type === 'gaming') { 
-                  // If we are injecting a note, it means user alt-tabbed or dual screen?
-                  if (platform !== 'bilibili') {
-                       sensoryObservation += `（电脑后台似乎运行着大型程序，{{user}} 的注意力显得有些分散...）\n`;
-                  }
+                  const gameName = activity.name || "某款游戏";
+                  const playMin = activity.duration_minutes || 0;
+                  sensoryObservation += `（检测到后台《${gameName}》已运行 ${playMin} 分钟，{{user}} 似乎是切出来看一眼攻略或摸鱼...）\n`;
              }
         }
+    }
+
+    // 补救措施：强制显示 Recent Titles + Tags (User Request)
+    let recentTagsBlock = "";
+    if (bufferEntries.length > 0) {
+         //bufferEntries has {title, tags}
+         // Format: 《Title》#Tag1 #Tag2
+         const historyItems = bufferEntries.slice(0, 5).map(e => {
+             const tList = (e.tags || []).slice(0,3).join(' #');
+             const tagPart = tList ? ` #${tList}` : '';
+             return `「${e.title}」${tagPart}`;
+         });
+         
+         const historyStr = historyItems.join('；');
+         if (historyStr) {
+             recentTagsBlock = `\n（{{char}} 留意到 {{user}} 最近常看：${historyStr}...）`;
+         }
     }
 
     const narrativeBody = `
 ${vibeIntro}
 ${sensoryObservation}
-${internalMonologue}
+${internalMonologue}${recentTagsBlock}
 ${detailObservation}
 （空气里有一瞬间的安静。）${draftInstruction}`.trim();
 

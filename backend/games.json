@@ -1,0 +1,54 @@
+{
+    "apps": [
+        {
+            "exe": "Antigravity.exe",
+            "name": "Antigravity",
+            "type": "coding"
+        },
+        {
+            "exe": "Code.exe",
+            "name": "VS Code",
+            "type": "coding"
+        },
+        {
+            "exe": "ZenlessZoneZero.exe",
+            "name": "绝区零",
+            "type": "gaming"
+        },
+        {
+            "exe": "ZFGameBrowser.exe",
+            "name": "绝区零",
+            "type": "gaming"
+        },
+        {
+            "exe": "ZenlessZoneZero",
+            "name": "绝区零",
+            "type": "gaming"
+        },
+        {
+            "exe": "Wuthering Waves.exe",
+            "name": "鸣潮",
+            "type": "gaming"
+        },
+        {
+            "exe": "Wuthering Waves",
+            "name": "鸣潮",
+            "type": "gaming"
+        },
+        {
+            "exe": "StarRail.exe",
+            "name": "崩坏：星穹铁道",
+            "type": "gaming"
+        },
+        {
+            "exe": "YuanShen.exe",
+            "name": "原神",
+            "type": "gaming"
+        },
+        {
+            "exe": "GenshinImpact.exe",
+            "name": "Genshin Impact",
+            "type": "gaming"
+        }
+    ]
+}

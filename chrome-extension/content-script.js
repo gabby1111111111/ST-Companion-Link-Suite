@@ -48,6 +48,23 @@
       };
     }
 
+    getClickSelectors() {
+        return {
+            like: this.LIKE_SELECTORS.wrappers,
+            collect: ['.collect-wrapper', '[data-type="collect"]'],
+            share: [],
+            commentSubmit: ['.comment-submit'] 
+        };
+    }
+
+    isLikeActivated(element) {
+        if (!element) return false;
+        // Check local class list
+        if (this.LIKE_SELECTORS.activeClasses.some(c => element.classList.contains(c))) return true;
+        // Check child svg or inner element
+        return !!element.querySelector('.liked, .active, [class*="active"]');
+    }
+
     parseCurrentId() {
       const url = window.location.href;
       for (const pattern of this.NOTE_URL_PATTERNS) {
@@ -95,14 +112,40 @@
       } catch (e) { console.warn("XHS InitialState parse error", e); }
 
       // 降级 DOM 提取
+      // Fix: Generic .title selector matches recommendations. Prioritize document.title.
+      let domTitle = document.title.replace(" - 小红书", "").trim();
+      
+      // Only generic title? Try DOM.
+      if (!domTitle || domTitle === "小红书") {
+          const container = document.querySelector('.note-detail-mask, .note-container, .note-content');
+          if (container) {
+              // Try to find title that is NOT in a recommendation list
+              // Usually the main title is h1 or specific class
+              const titleEl = container.querySelector("#detail-title, .title, h1");
+              if (titleEl) domTitle = titleEl.textContent.trim();
+          }
+      }
+
+      // Extract tags from DOM or fallback
+      let tags = Array.from(document.querySelectorAll("#noteContainer .tag-item, .tag-item")).map(el => el.textContent.replace(/^#/, "").trim());
+      
+      // Supplement with regex from Title/Content if tags are empty
+      if (tags.length === 0) {
+           const textToScan = (domTitle + " " + (document.querySelector(".desc")?.textContent || "")).replace(/\n/g, " ");
+           const hashMatches = textToScan.match(/#[\u4e00-\u9fa5a-zA-Z0-9_]+/g);
+           if (hashMatches) {
+               tags = hashMatches.map(t => t.substring(1));
+           }
+      }
+
       return {
         note_id: noteId,
-        title: document.querySelector(".title")?.textContent || document.title,
+        title: domTitle || "小红书笔记",
         platform: "xiaohongshu",
         content: document.querySelector(".desc")?.textContent || "",
         author: { nickname: document.querySelector(".name")?.textContent || "", user_id: "", avatar: "" },
         interaction: {},
-        tags: Array.from(document.querySelectorAll(".tag-item")).map(el => el.textContent.replace(/^#/, "").trim()),
+        tags: [...new Set(tags)], // Deduplicate
         top_comments: [],
         images: []
       };
@@ -160,6 +203,36 @@
       const coinEl = document.querySelector('.coin-info, .video-coin');
       const coinCount = coinEl ? parseInt(coinEl.textContent.trim()) || 0 : 0;
 
+      // 尝试获取在线人数 (view-stat)
+      // 通常在视频标题下方: "X人正在看"
+      let onlineCount = 0;
+      try {
+          // B站新版 .view-stat 或 .online-count
+          const viewStat = document.querySelector('.view-stat, .total-view');
+          if (viewStat) {
+              const text = viewStat.textContent;
+              const match = text.match(/([0-9]+)人正在看/);
+              if (match) onlineCount = parseInt(match[1]);
+          }
+      } catch(e) {}
+
+      // 尝试获取热门评论 (Top 3)
+      // 仅在 interact 或 进度 > 50% 时抓取 (性能保护)
+      let hotComments = [];
+      const isHighValueMoment = this.isLikeActivated(document.body) || 
+                                this.isCoinActivated(document.body) ||
+                                (video && video.duration && (video.currentTime / video.duration > 0.5));
+
+      if (isHighValueMoment) {
+          try {
+             const comments = document.querySelectorAll('.reply-item .reply-content');
+             // 取前 3 条 (通常是热评)
+             for (let i = 0; i < Math.min(3, comments.length); i++) {
+                 hotComments.push(comments[i].textContent.trim());
+             }
+          } catch(e) {}
+      }
+
       // 播放进度
       let progress = "";
       const video = document.querySelector('video');
@@ -187,8 +260,10 @@
             like_count: 0, 
             collect_count: 0,
             comment_count: 0,
-            coin_count: coinCount
+            coin_count: coinCount,
+            online_count: onlineCount
         },
+        hot_comments: hotComments,
         tags: keywords.slice(0, 5),
         top_comments: [],
         images: [cover]

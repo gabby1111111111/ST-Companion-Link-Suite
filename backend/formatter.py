@@ -20,6 +20,58 @@ ACTION_DESCRIPTIONS = {
     ActionType.COIN: "投币了",
 }
 
+class BiliContentService:
+    """
+    Bilibili 内容感知服务 (Danmaku/Subs)
+    """
+    def __init__(self):
+        # Mock Danmaku Database (In real world, fetch from API)
+        self.danmaku_db = {
+            "high_energy": ["前方高能", "卧槽", "帅帅帅", "经费在燃烧"],
+            "sad": ["泪目", "致敬", "哭死", "意难平"],
+            "funny": ["哈哈哈哈", "笑死", "人才", "生草"]
+        }
+
+    def get_content_context(self, current_time_str: str, duration_str: str) -> str:
+        """
+        根据时间进度返回内容上下文 (e.g. "前方高能")
+        """
+        if not current_time_str or not duration_str:
+            return ""
+
+        try:
+            # Parse "0:45" -> 45s
+            def parse_sec(t):
+                if ":" not in t: return 0
+                parts = t.split(":")
+                return int(parts[0]) * 60 + int(parts[1])
+            
+            curr = parse_sec(current_time_str)
+            total = parse_sec(duration_str)
+            
+            if total == 0: return ""
+            progress = curr / total
+
+            import random
+            context = ""
+            
+            if 0.1 <= progress <= 0.2:
+                kw = random.choice(self.danmaku_db["funny"])
+                context = f"（此时屏幕上飘过大片“{kw}”的弹幕...）"
+            elif 0.5 <= progress <= 0.6:
+                kw = random.choice(self.danmaku_db["high_energy"])
+                context = f"（弹幕突然刷屏“{kw}”，BGM也变得燃了起来...）"
+            elif progress > 0.9:
+                kw = random.choice(self.danmaku_db["sad"])
+                context = f"（进度条见底，弹幕里满屏都是“{kw}”...）"
+                
+            return context
+        except Exception:
+            return ""
+
+# Singleton Service
+bili_service = BiliContentService()
+
 
 def format_for_sillytavern(
     action: ActionType,
@@ -37,9 +89,8 @@ def format_for_sillytavern(
     Returns:
         CompanionContext: 包含预格式化文本的联动上下文
     """
-    action_desc = ACTION_DESCRIPTIONS.get(action, "浏览了")
     
-    # 平台区分逻辑
+    action_desc = ACTION_DESCRIPTIONS.get(action, "浏览了")
     is_bilibili = getattr(note, "platform", "xiaohongshu") == "bilibili"
     
     if is_bilibili:
@@ -117,12 +168,7 @@ def _format_bilibili_card(
     note: NoteData,
     user_comment: str | None
 ) -> CompanionContext:
-    """
-    Bilibili 专属粉色卡片样式
-    📺 Bilibili · {{action}}
-    UP主: {{author}}
-    进度: {{play_progress}}
-    """
+    # Bilibili 专属粉色卡片样式
     lines = [
         f"<details>",
         f"<summary>📺 Bilibili · {action_desc}</summary>",
@@ -146,14 +192,21 @@ def _format_bilibili_card(
     
     lines.append(">")
 
-    # 3. 简介 (可选)
+    # 3. 实时弹幕/内容感知 (Phase 26)
+    if note.play_progress:
+         parts = note.play_progress.split("/")
+         if len(parts) == 2:
+             content_ctx = bili_service.get_content_context(parts[0].strip(), parts[1].strip())
+             if content_ctx:
+                 lines.append(f"> {content_ctx}")
+                 lines.append(">")
     if note.content_summary:
         content = note.content_summary.replace('\n', ' ').strip()[:100]
         if content:
             lines.append(f"> {content}...")
             lines.append(">")
 
-    # 4. 互动数据 (硬币/三连)
+    # 5. 互动数据 (硬币/三连)
     inter = note.interaction
     stats = []
     if inter.coin_count:
@@ -189,7 +242,7 @@ def _format_bilibili_card(
 
 
 def _append_comments_and_user_input(lines: list, note: NoteData, user_comment: str | None):
-    """通用：追加热门评论和用户输入"""
+    # 通用: 追加热门评论和用户输入
     if note.top_comments:
         lines.append("> ─────────────────")
         lines.append("> 💬 热门弹幕/评论:")
@@ -204,12 +257,11 @@ def _append_comments_and_user_input(lines: list, note: NoteData, user_comment: s
 
 
 def _get_action_guidance(action: ActionType) -> str:
-    """(Deprecated) 行为指引现由前端 Prompt 处理，保留此函数兼容旧代码或备用"""
+    # (Deprecated) 行为指引现由前端 Prompt 处理, 保留此函数兼容旧代码或备用
     return ""
 
 
 def _format_count(val: int | float) -> str:
-    """将数字格式化为可读字符串 (如 12345 → 1.2w)"""
     if not val:
         return "0"
     count = int(val)

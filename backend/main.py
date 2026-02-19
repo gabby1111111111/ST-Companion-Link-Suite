@@ -5,6 +5,7 @@ FastAPI 服务：接收 Chrome 扩展信号 → 提取小红书数据 → 格式
 """
 
 import logging
+import httpx # Added by user
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -56,6 +57,15 @@ async def lifespan(app: FastAPI):
     
     # 启动 System Observer (但不开启自动推送 Loop)
     system_observer.start()
+
+    # 🔄 Tell SillyTavern to Clear Context (Sync Reset)
+    try:
+        async with httpx.AsyncClient() as client:
+            st_clear_url = f"{settings.sillytavern_url}/api/plugins/companion-link/clear"
+            await client.post(st_clear_url, json={"clear_history": True}, timeout=2.0)
+            logger.info("🧹 已通知 SillyTavern 清空旧上下文 (Sync Reset)")
+    except Exception as e:
+        logger.warning(f"⚠️ 无法连接 SillyTavern 清空上下文: {e}")
     
     yield
     
@@ -124,15 +134,17 @@ async def receive_signal(signal: SignalPayload):
         # ============================================================
 
         if signal.action == ActionType.READ:
-            # -------- 静默感知路径 (Read → Buffer + System Note) --------
+            # 3. 如果是 Read 操作，更新缓冲区 (潜意识)
             read_buffer.add(
                 title=note_data.title,
                 tags=note_data.tags,
-                url=signal.note_url,
+                url=note_data.note_url,
                 author=note_data.author.nickname,
+                content=note_data.content  # Added content
             )
-
-            # 构建潜意识 System Note
+            
+            # 立即生成并推送 System Note (Silent)
+            # 只有当缓冲区积累了一定数据，或者刚好是 active 时才推？read_buffer.get_keywords_summary()
             keywords = read_buffer.get_keywords_summary()
             system_note_text = (
                 f"（潜意识感知：用户最近 15 分钟浏览了关于 {keywords} 的内容，"

@@ -47,6 +47,7 @@ class ReadBuffer:
         tags: list[str],
         url: str,
         author: str = "",
+        content: str = "",
     ) -> int:
         """
         添加一条 read 记录
@@ -57,12 +58,24 @@ class ReadBuffer:
         with self._lock:
             self._cleanup()
 
+            # Deduplicate: Remove existing entry with same URL
+            if url:
+                try:
+                    # Filter out existing with same URL
+                    self._buffer = deque(
+                        [e for e in self._buffer if e.get("url") != url],
+                        maxlen=self._buffer.maxlen
+                    )
+                except Exception:
+                    pass
+
             entry = {
                 "timestamp": datetime.now(timezone.utc),
                 "title": title.strip() if title else "",
                 "tags": tags or [],
                 "url": url,
                 "author": author,
+                "content": content,
             }
             self._buffer.append(entry)
 
@@ -109,13 +122,9 @@ class ReadBuffer:
                     seen.add(t)
                     unique_tags.append(t)
 
-            # 如果标签不够，用标题补充
-            if len(unique_tags) < 3:
-                for entry in self._buffer:
-                    title = entry.get("title", "").strip()
-                    if title and title not in seen:
-                        seen.add(title)
-                        unique_tags.append(title)
+            # 如果标签不够，尝试简单分词或由于用户不喜欢Title混入，此处暂时留空
+            # Only use tags for keywords summary to avoid full titles appearing as keywords
+            pass
 
             # 最多取 8 个关键词
             keywords = unique_tags[:8]
