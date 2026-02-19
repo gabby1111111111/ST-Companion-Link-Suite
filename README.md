@@ -57,16 +57,12 @@
    pip install -r requirements.txt
    ```
 3. 复制 `.env.example` 为 `.env` 并配置。
-4. 运行后端 (建议保持后台运行)：
-   ```bash
-   python main.py
-   ```
+4. **运行后端** (建议保持后台运行)：
+   - **Windows 用户**：直接双击项目根目录下的 `start_backend.bat`。
+   - **命令行启动**：`python main.py`
 
 ### 第二步：加载浏览器扩展 (Chrome Extension)
-
-1. Chrome极其内核浏览器打开 `chrome://extensions/`。
-2. 开启右上角「开发者模式」。
-3. 点击「加载已解压的扩展程序」，选择本项目的 `chrome-extension` 文件夹。
+... (略)
 
 ### 第三步：安装 SillyTavern 扩展
 
@@ -86,7 +82,7 @@
 
 ### 添加新游戏/应用监控
 想让 AI 知道你在玩《黑神话：悟空》或写代码？
-1. 打开 `backend/games.json` 文件。
+1. 打开 `backend/games.json` 文件（该文件现在已默认包含在仓库中）。
 2. 在 `apps` 列表中添加一项：
    ```json
    {
@@ -95,22 +91,20 @@
        "type": "gaming"
    }
    ```
-3. 重启后端 (`python main.py`) 即可生效。
+3. 重启后端即可生效。
 
 ---
 
 ## 🛠️ 常见问题
 
+**Q: 启动后报错 `ModuleNotFoundError`？**
+A: 请确保在 `backend` 目录下运行了 `pip install -r requirements.txt`。
+
 **Q: 游戏联动没触发？**
 A: 
-1. 确保 `monitor.py` 正在运行。
-2. 确保游戏进程名在 `backend/monitor.py` 的 `PROCESS_DEFINITIONS` 中 (支持《鸣潮》、《绝区零》等)。
-3. 游戏结束后的有效“冷却期”为 60 分钟。
-
-**Q: B站投币后没反应？**
-A: 
-1. 只有**投币成功**（按钮变亮）才会触发。
-2. 有 **3秒防抖** 冷却时间。
+1. 确保后端进程正在运行。
+2. 确保游戏进程名在 `backend/games.json` 中。
+3. 游戏结束后的有效“照顾期”默认为 30 分钟。
 
 ---
 
