@@ -8,6 +8,7 @@
 
 (() => {
   "use strict";
+  console.log("🚀 Companion-Link Script Injecting...");
 
   const LOG_PREFIX = "[CL]";
   const PLATFORM = window.location.hostname.includes("bilibili.com") ? "BILIBILI" : "XHS";
@@ -182,7 +183,7 @@
   class BilibiliAdapter extends PlatformAdapter {
     constructor() {
       super();
-      this.BV_PATTERN = /\/(BV[0-9a-zA-Z]+)/;
+      this.BV_PATTERN = /\/((BV|bv)[0-9a-zA-Z]+)/i;
     }
 
     parseCurrentId() {
@@ -191,12 +192,65 @@
     }
 
     extractData(bvId) {
+      // 优先尝试 __INITIAL_STATE__
+      try {
+        const scripts = document.querySelectorAll("script");
+        for (const script of scripts) {
+          if (script.textContent.includes("__INITIAL_STATE__") && script.textContent.includes("videoData")) {
+            const match = script.textContent.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/ms);
+            if (match) {
+              const data = JSON.parse(match[1]);
+              const v = data?.videoData;
+              const u = data?.upData;
+              if (v) {
+                log.info("从 __INITIAL_STATE__ 提取成功", v.title);
+                return {
+                  note_id: bvId,
+                  title: v.title || "",
+                  content: v.desc || "",
+                  platform: "bilibili",
+                  author: {
+                    nickname: u?.name || v?.owner?.name || "",
+                    user_id: u?.mid || v?.owner?.mid || "",
+                    avatar: u?.face || v?.owner?.face || ""
+                  },
+                  interaction: {
+                    like_count: v?.stat?.like || 0,
+                    collect_count: v?.stat?.favorite || 0,
+                    coin_count: v?.stat?.coin || 0,
+                    comment_count: v?.stat?.reply || 0,
+                    online_count: 0 // Script usually doesn't have real-time online count
+                  },
+                  tags: (data?.tags || []).map(t => t.tag_name),
+                  top_comments: [],
+                  images: [v?.pic || ""]
+                };
+              }
+            }
+          }
+        }
+      } catch (e) { log.warn("Bilibili InitialState parse error", e); }
+
       const meta = (name) => document.querySelector(`meta[name="${name}"], meta[property="${name}"]`)?.content || "";
       
-      const title = meta("title").replace("_哔哩哔哩_bilibili", "").trim();
+      // 尝试获取标题 (Meta -> DOM fallback)
+      let title = meta("title").replace("_哔哩哔哩_bilibili", "").trim();
+      if (!title) {
+          const h1 = document.querySelector('.video-title, h1.title, .video-info-title-inner');
+          if (h1) title = h1.textContent.trim();
+          else title = document.title.replace("_哔哩哔哩_bilibili", "").trim();
+      }
+
       const desc = meta("description");
       const cover = meta("og:image");
-      const author = meta("author");
+      
+      // 尝试获取作者 (Meta -> DOM fallback)
+      let author = meta("author");
+      if (!author) {
+          const upName = document.querySelector('.up-name, .user-name, .bili-avatar-text');
+          if (upName) author = upName.textContent.trim();
+      }
+      
       const keywords = meta("keywords")?.split(",") || [];
 
       // 尝试获取硬币数
@@ -271,11 +325,11 @@
     }
 
     isLikeActivated(element) {
-      // Bilibili 点赞按钮 (新旧版混杂)
-      // 旧版: .video-toolbar-left-item.like.on
-      // 新版: .video-like.on
+      // Bilibili 点赞按钮
+      // 核心特征: .video-like (外层), .on (激活状态)
+      // 兼容: 全屏/宽屏模式下的工具栏 .video-toolbar-left-item
       const container = element.closest('.like, .video-like, .video-toolbar-left-item'); 
-      return container && container.classList.contains('on');
+      return container && (container.classList.contains('on') || container.classList.contains('active'));
     }
     
     isCoinActivated(element) {
@@ -285,7 +339,7 @@
 
     getClickSelectors() {
       return {
-        like: ['.video-like', '.like', '.video-toolbar-left-item.like'],
+        like: ['.video-like', '.like', '.video-toolbar-left-item.like', '.video-toolbar .like'],
         collect: ['.video-fav', '.fav', '.video-toolbar-left-item.fav'],
         share: ['.video-share', '.share', '.video-toolbar-left-item.share'],
         coin: ['.video-coin', '.coin', '.video-toolbar-left-item.coin'],
@@ -421,10 +475,10 @@
     }, 1000); // 轮询比 pushState 钩子更稳（B站有时候不触发standard events）
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initObserver);
-  } else {
+  try {
     initObserver();
+  } catch (e) {
+    console.error(LOG_PREFIX, "Fatal Error in initObserver:", e);
   }
 
 })();

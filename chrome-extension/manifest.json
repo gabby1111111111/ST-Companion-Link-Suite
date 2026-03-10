@@ -13,6 +13,8 @@
     "https://www.xiaohongshu.com/*",
     "https://xiaohongshu.com/*",
     "https://*.bilibili.com/*",
+    "*://*.bilibili.com/*",
+    "*://bilibili.com/*",
     "http://localhost:8765/*",
     "http://127.0.0.1:8765/*"
   ],
@@ -27,7 +29,8 @@
       "matches": [
         "https://www.xiaohongshu.com/*",
         "https://xiaohongshu.com/*",
-        "https://*.bilibili.com/*"
+        "*://*.bilibili.com/*",
+        "*://bilibili.com/*"
       ],
       "js": ["content-script.js"],
       "run_at": "document_start",

@@ -161,6 +161,18 @@ async def receive_signal(signal: SignalPayload):
                 f"🔇 静默感知: 缓冲区={read_buffer.size()}, "
                 f"keywords='{keywords[:50]}'"
             )
+            
+            # -- 把静默浏览记录发射到 Aegis-Isle 的 EventBus 中 --
+            from aegis_client import update_state
+            asyncio.create_task(update_state(
+                user_id="gabby",
+                action=signal.action.value,
+                title=note_data.title,
+                tags=note_data.tags,
+                url=signal.note_url,
+                platform=note_data.platform,
+                comment=signal.comment_text
+            ))
 
             return APIResponse(
                 success=True,
@@ -187,6 +199,22 @@ async def receive_signal(signal: SignalPayload):
             # Step 2b: 聚合缓冲区上下文
             buffer_entries = read_buffer.get_display_entries()
             buffer_summary = read_buffer.get_keywords_summary()
+
+            # --- RAG 增强：将行为事件送至 Aegis-Isle 离线日记系统 ---
+            from aegis_client import update_state
+            
+            # 使用 create_task 异步抛给后台写入 EventBus，不阻塞当前流程
+            asyncio.create_task(update_state(
+                user_id="gabby",
+                action=signal.action.value,
+                title=note_data.title,
+                tags=note_data.tags,
+                url=signal.note_url,
+                platform=note_data.platform,
+                comment=signal.comment_text
+            ))
+            # （注：Aegis 本身就是代理，ST 调用补全时会自动通过 memory.py 注入 FAISS 背景，这里无需再主动取回）
+            # -------------------------------------------------------------
 
             # Step 3: 分发到各目标（附带缓冲区数据）
             dispatch_results = await dispatcher.dispatch(
